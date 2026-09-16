@@ -2,7 +2,7 @@
 
 DealerSource continuously discovers, verifies, and ranks leaseable used-car dealership sites in Eastern North Carolina. A site reaches the shortlist only when current, cited evidence passes its zoning, written-rent, and flood gates.
 
-This implementation follows the approved [task specification](https://raw.githubusercontent.com/ryanflash66/dealersource/main/prompts/task-spec.md) and [shared system prompt](https://raw.githubusercontent.com/ryanflash66/dealersource/main/prompts/system-prompt.md).
+This implementation follows the approved [task specification](https://raw.githubusercontent.com/ryanflash66/dealersource/main/prompts/task-spec.md), [shared system prompt](https://raw.githubusercontent.com/ryanflash66/dealersource/main/prompts/system-prompt.md), and mandatory [dashboard design template](https://github.com/ryanflash66/dealersource/tree/main/prompts/dashboard-design). The dashboard uses the assigned GPT accent `#10A37F`.
 
 ## Offline first run
 
