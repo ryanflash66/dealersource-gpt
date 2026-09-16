@@ -1,0 +1,17 @@
+{
+  "name": "dealersource-gpt",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test --test-concurrency=1 test/**/*.test.ts",
+    "pipeline": "node --experimental-strip-types src/cli.ts",
+    "dashboard:build": "node --experimental-strip-types scripts/build-dashboard.ts",
+    "dashboard:dev": "node --experimental-strip-types dashboard/server.ts",
+    "deploy:vercel": "pnpm dashboard:build && vercel --prod",
+    "verify": "pnpm test && pnpm pipeline --offline --date 2026-09-16 && pnpm dashboard:build"
+  }
+}

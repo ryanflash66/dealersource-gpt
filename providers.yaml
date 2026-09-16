@@ -1,0 +1,16 @@
+paid_enabled: false
+fixture_fallback: true
+providers:
+  geocoder: census
+  parcels: nc_onemap
+  zoning: official_arcgis
+  drive_time: openrouteservice
+  traffic: ncdot_aadt
+  flood: fema_nfhl
+  imagery: nc_onemap_imagery
+  competitors: overpass
+  map_tiles: protomaps
+  crawler: anycrawl_self_hosted
+  social: reddit
+  mail: gmail
+  llm: scheduled_agent

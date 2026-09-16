@@ -1,0 +1,84 @@
+{
+  "geocoder": {
+    "census": {
+      "commerce-way": { "canonicalAddress": "1420 COMMERCE WAY, GREENVILLE, NC 27858", "latitude": 35.6121, "longitude": -77.3664, "identityProvider": "census" },
+      "market-street": { "canonicalAddress": "88 MARKET ST, WINTERVILLE, NC 28590", "latitude": 35.5291, "longitude": -77.4018, "identityProvider": "census" },
+      "river-road": { "canonicalAddress": "410 RIVER RD, WASHINGTON, NC 27889", "latitude": 35.5462, "longitude": -77.0509, "identityProvider": "census" },
+      "main-street": { "canonicalAddress": "207 MAIN ST, FARMVILLE, NC 27828", "latitude": 35.5954, "longitude": -77.5854, "identityProvider": "census" }
+    },
+    "nominatim": {
+      "commerce-way": { "canonicalAddress": "1420 Commerce Way, Greenville, Pitt County, North Carolina, 27858", "latitude": 35.612, "longitude": -77.3665, "identityProvider": "nominatim" },
+      "market-street": { "canonicalAddress": "88 Market Street, Winterville, Pitt County, North Carolina, 28590", "latitude": 35.529, "longitude": -77.4019, "identityProvider": "nominatim" },
+      "river-road": { "canonicalAddress": "410 River Road, Washington, Beaufort County, North Carolina, 27889", "latitude": 35.5461, "longitude": -77.051, "identityProvider": "nominatim" },
+      "main-street": { "canonicalAddress": "207 Main Street, Farmville, Pitt County, North Carolina, 27828", "latitude": 35.5953, "longitude": -77.5855, "identityProvider": "nominatim" }
+    },
+    "google_geocoding": {
+      "default": { "canonicalAddress": "PAID FIXTURE ADDRESS", "latitude": 35.6, "longitude": -77.4, "identityProvider": "google_geocoding" }
+    }
+  },
+  "parcels": {
+    "nc_onemap": {
+      "commerce-way": { "parcelId": "PITT-CW-001", "owner": "Fixture Holdings A", "acreage": 0.72 },
+      "market-street": { "parcelId": "PITT-MS-002", "owner": "Fixture Holdings B", "acreage": 0.44 },
+      "river-road": { "parcelId": "BEAU-RR-003", "owner": "Fixture Holdings C", "acreage": 1.1 },
+      "main-street": { "parcelId": "PITT-MAIN-004", "owner": "Fixture Holdings D", "acreage": 0.39 }
+    },
+    "county_gis": { "default": { "parcelId": "COUNTY-FALLBACK", "owner": "Fixture Owner", "acreage": 0.5 } },
+    "regrid": { "default": { "parcelId": "REGRID-PAID", "owner": "Fixture Owner", "acreage": 0.5 } }
+  },
+  "zoning": {
+    "official_arcgis": {
+      "commerce-way": { "verified": true, "permitted": true, "district": "CH", "citation": "UDO §9.4.2 Motor Vehicle Sales", "sourceUrl": "https://fixtures.local/official/zoning/commerce-way", "fetchedAt": "2026-09-15T14:00:00.000Z", "expiresAt": "2026-12-14T14:00:00.000Z", "method": "official-layer-and-use-table" },
+      "market-street": { "verified": true, "permitted": true, "district": "GB", "citation": "UDO §6.3 Conditional Motor Vehicle Sales; written approval Z-204", "sourceUrl": "https://fixtures.local/official/zoning/market-street", "fetchedAt": "2026-09-15T14:00:00.000Z", "expiresAt": "2026-12-14T14:00:00.000Z", "method": "planning-email" },
+      "river-road": { "verified": true, "permitted": true, "district": "B2", "citation": "UDO §4.8 Vehicle Sales", "sourceUrl": "https://fixtures.local/official/zoning/river-road", "fetchedAt": "2026-09-15T14:00:00.000Z", "expiresAt": "2026-12-14T14:00:00.000Z", "method": "official-layer-and-use-table" },
+      "main-street": { "verified": false, "permitted": null, "district": "MU", "citation": null, "sourceUrl": "https://fixtures.local/official/zoning/main-street", "fetchedAt": "2026-09-15T14:00:00.000Z", "expiresAt": "2026-12-14T14:00:00.000Z", "method": "official-layer-only", "authorityEmail": "planning@fixtures.local" }
+    },
+    "official_manual_service": { "default": { "verified": true, "permitted": true, "district": "PAID", "citation": "Paid fixture", "sourceUrl": "https://fixtures.local/paid/zoning", "fetchedAt": "2026-09-15T14:00:00.000Z", "expiresAt": "2026-12-14T14:00:00.000Z", "method": "paid-research" } }
+  },
+  "drive_time": {
+    "openrouteservice": {
+      "commerce-way": { "minutes": 12 }, "market-street": { "minutes": 18 }, "river-road": { "minutes": 37 }, "main-street": { "minutes": 31 }
+    },
+    "valhalla": { "default": { "minutes": 20 } },
+    "google_distance_matrix": { "default": { "minutes": 20 } }
+  },
+  "traffic": {
+    "ncdot_aadt": {
+      "commerce-way": { "aadt": 24600, "sourceUrl": "https://fixtures.local/ncdot/aadt/commerce-way" },
+      "market-street": { "aadt": 28900, "sourceUrl": "https://fixtures.local/ncdot/aadt/market-street" },
+      "river-road": { "aadt": 17400, "sourceUrl": "https://fixtures.local/ncdot/aadt/river-road" },
+      "main-street": { "aadt": 13100, "sourceUrl": "https://fixtures.local/ncdot/aadt/main-street" }
+    },
+    "traffic_data_service": { "default": { "aadt": 20000 } }
+  },
+  "flood": {
+    "fema_nfhl": {
+      "commerce-way": { "verified": true, "centroidZone": "X", "highRiskAreaPct": 0, "sourceUrl": "https://fixtures.local/fema/commerce-way", "fetchedAt": "2026-09-15T15:00:00.000Z", "expiresAt": "2026-12-14T15:00:00.000Z", "method": "parcel-overlay" },
+      "market-street": { "verified": true, "centroidZone": "SHADED X", "highRiskAreaPct": 11, "sourceUrl": "https://fixtures.local/fema/market-street", "fetchedAt": "2026-09-15T15:00:00.000Z", "expiresAt": "2026-12-14T15:00:00.000Z", "method": "parcel-overlay" },
+      "river-road": { "verified": true, "centroidZone": "AE", "highRiskAreaPct": 72, "sourceUrl": "https://fixtures.local/fema/river-road", "fetchedAt": "2026-09-15T15:00:00.000Z", "expiresAt": "2026-12-14T15:00:00.000Z", "method": "parcel-overlay" },
+      "main-street": { "verified": true, "centroidZone": "X", "highRiskAreaPct": 0, "sourceUrl": "https://fixtures.local/fema/main-street", "fetchedAt": "2026-09-15T15:00:00.000Z", "expiresAt": "2026-12-14T15:00:00.000Z", "method": "parcel-overlay" }
+    },
+    "flood_data_service": { "default": { "verified": true, "centroidZone": "X", "highRiskAreaPct": 0 } }
+  },
+  "imagery": {
+    "nc_onemap_imagery": {
+      "commerce-way": { "urls": ["https://fixtures.local/imagery/commerce-way.jpg"], "frontageFeet": 148, "cornerLot": true, "signageVisible": true },
+      "market-street": { "urls": ["https://fixtures.local/imagery/market-street.jpg"], "frontageFeet": 210, "cornerLot": true, "signageVisible": true },
+      "river-road": { "urls": ["https://fixtures.local/imagery/river-road.jpg"], "frontageFeet": 170, "cornerLot": false, "signageVisible": true },
+      "main-street": { "urls": ["https://fixtures.local/imagery/main-street.jpg"], "frontageFeet": 92, "cornerLot": false, "signageVisible": false }
+    },
+    "mapillary": { "default": { "urls": [], "frontageFeet": 100, "cornerLot": false, "signageVisible": false } },
+    "google_street_view": { "default": { "urls": [], "frontageFeet": 100, "cornerLot": false, "signageVisible": false } }
+  },
+  "competitors": {
+    "overpass": {
+      "commerce-way": { "count": 4 }, "market-street": { "count": 1 }, "river-road": { "count": 2 }, "main-street": { "count": 1 }
+    },
+    "google_places": { "default": { "count": 2 } }
+  },
+  "map_tiles": { "protomaps": { "default": { "mode": "self-hosted" } }, "mapbox": { "default": { "mode": "paid" } } },
+  "crawler": { "anycrawl_self_hosted": { "default": { "documents": [] } }, "anycrawl_cloud": { "default": { "documents": [] } } },
+  "social": { "reddit": { "default": { "documents": [] } }, "social_data_service": { "default": { "documents": [] } } },
+  "mail": { "gmail": { "default": { "accepted": true, "messageId": "fixture-message" } }, "transactional_email": { "default": { "accepted": true, "messageId": "paid-fixture-message" } } },
+  "llm": { "scheduled_agent": { "default": { "classification": "fixture" } }, "claude_api": { "default": { "classification": "fixture" } } }
+}
