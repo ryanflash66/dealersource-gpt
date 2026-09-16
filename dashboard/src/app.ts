@@ -23,12 +23,14 @@ async function fetchSupabase(path) {
 
 async function loadReport() {
   if (runtime.supabaseUrl && runtime.supabaseAnonKey) {
-    const [siteRows, evidenceRows, scoreRows, runRows, sourceRows] = await Promise.all([
+    const [siteRows, evidenceRows, scoreRows, runRows, sourceRows, caseRows, systemRows] = await Promise.all([
       fetchSupabase("sites?select=*&order=shared_lot.asc,updated_at.desc"),
       fetchSupabase("evidence?select=*"),
       fetchSupabase("scores?select=*"),
       fetchSupabase("runs?select=*&order=started_at.desc&limit=1"),
       fetchSupabase("sources?select=*"),
+      fetchSupabase("cases?select=id,site_id,case_type,owner,status,opened_at,next_action_at,followups&status=neq.closed"),
+      fetchSupabase("system_state?select=id,paused,reason,updated_at"),
     ]);
     const sites = siteRows.map((row) => row.payload && Object.keys(row.payload).length ? row.payload : row);
     for (const site of sites) {
@@ -47,8 +49,14 @@ async function loadReport() {
       runId: run.id ?? "live",
       shortlist: sites.filter((site) => site.viable),
       pipeline: sites,
-      cases: [],
-      exceptions: sourceRows.filter((source) => !source.enabled).map((source) => ({ type: "source", severity: "warning", message: `${source.name} excluded by source policy.` })),
+      cases: caseRows.map((row) => ({
+        id: row.id, siteId: row.site_id, type: row.case_type, owner: row.owner,
+        status: row.status, openedAt: row.opened_at, nextActionAt: row.next_action_at, followups: row.followups,
+      })),
+      exceptions: [
+        ...sourceRows.filter((source) => !source.enabled).map((source) => ({ type: "source", severity: "warning", message: `${source.name} excluded by source policy.` })),
+        ...systemRows.filter((item) => item.paused).map((item) => ({ type: item.id, severity: "error", message: `Automated ${item.id} is paused: ${item.reason ?? "manual pause"}.` })),
+      ],
       config: runtime.publicConfig,
     };
   }

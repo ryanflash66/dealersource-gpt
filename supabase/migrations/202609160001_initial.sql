@@ -144,6 +144,14 @@ create table public.runs (
   payload jsonb not null default '{}'::jsonb
 );
 
+create table public.system_state (
+  id text primary key,
+  paused boolean not null default false,
+  reason text,
+  updated_at timestamptz not null default now(),
+  payload jsonb not null default '{}'::jsonb
+);
+
 create index evidence_site_fact_idx on public.evidence (site_id, fact, expires_at desc);
 create index sites_viable_score_idx on public.sites (viable, shared_lot, updated_at desc);
 create index cases_status_next_action_idx on public.cases (status, next_action_at);
@@ -163,6 +171,7 @@ alter table public.cases enable row level security;
 alter table public.messages enable row level security;
 alter table public.scores enable row level security;
 alter table public.runs enable row level security;
+alter table public.system_state enable row level security;
 
 create policy "dashboard reads sources" on public.sources for select to anon, authenticated using (true);
 create policy "dashboard reads sites" on public.sites for select to anon, authenticated using (true);
@@ -170,14 +179,17 @@ create policy "dashboard reads parcels" on public.parcels for select to anon, au
 create policy "dashboard reads evidence" on public.evidence for select to anon, authenticated using (true);
 create policy "dashboard reads scores" on public.scores for select to anon, authenticated using (true);
 create policy "dashboard reads run summaries" on public.runs for select to anon, authenticated using (true);
+create policy "dashboard reads system status" on public.system_state for select to anon, authenticated using (true);
+create policy "dashboard reads case status" on public.cases for select to anon, authenticated using (true);
 create policy "authenticated reads listings" on public.listings for select to authenticated using (true);
-create policy "authenticated reads cases" on public.cases for select to authenticated using (true);
 create policy "authenticated reads raw documents" on public.raw_documents for select to authenticated using (true);
 create policy "authenticated reads messages" on public.messages for select to authenticated using (true);
 create policy "authenticated reads contacts" on public.contacts for select to authenticated using (true);
 
 grant usage on schema public to anon, authenticated;
-grant select on public.sources, public.sites, public.parcels, public.evidence, public.scores, public.runs to anon, authenticated;
+grant select on public.sources, public.sites, public.parcels, public.evidence, public.scores, public.runs, public.system_state to anon, authenticated;
+grant select (id, site_id, case_type, owner, status, opened_at, next_action_at, followups) on public.cases to anon;
+grant select on public.cases to authenticated;
 grant select on public.raw_documents, public.listings, public.cases, public.messages, public.contacts to authenticated;
 
 create or replace view public.viable_shortlist

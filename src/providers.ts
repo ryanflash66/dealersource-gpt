@@ -62,13 +62,25 @@ const definitions: AdapterDefinition[] = [
 type FixtureFile = Record<string, Record<string, Record<string, unknown>>>;
 
 class RecordedFixtureAdapter implements ProviderAdapter<Record<string, unknown>, unknown> {
+  readonly layer: Layer;
+  readonly name: string;
+  readonly paid: boolean;
+  readonly costClass: "free" | "paid-low" | "paid-variable";
+  private readonly fixtures: FixtureFile;
+
   constructor(
-    readonly layer: Layer,
-    readonly name: string,
-    readonly paid: boolean,
-    readonly costClass: "free" | "paid-low" | "paid-variable",
-    private readonly fixtures: FixtureFile,
-  ) {}
+    layer: Layer,
+    name: string,
+    paid: boolean,
+    costClass: "free" | "paid-low" | "paid-variable",
+    fixtures: FixtureFile,
+  ) {
+    this.layer = layer;
+    this.name = name;
+    this.paid = paid;
+    this.costClass = costClass;
+    this.fixtures = fixtures;
+  }
 
   async execute(input: Record<string, unknown>): Promise<unknown> {
     const key = String(input.fixtureKey ?? "default");
@@ -79,13 +91,25 @@ class RecordedFixtureAdapter implements ProviderAdapter<Record<string, unknown>,
 }
 
 class JsonHttpAdapter implements ProviderAdapter<Record<string, unknown>, unknown> {
+  readonly layer: Layer;
+  readonly name: string;
+  readonly paid: boolean;
+  readonly costClass: "free" | "paid-low" | "paid-variable";
+  private readonly endpoint: string;
+
   constructor(
-    readonly layer: Layer,
-    readonly name: string,
-    readonly paid: boolean,
-    readonly costClass: "free" | "paid-low" | "paid-variable",
-    private readonly endpoint: string,
-  ) {}
+    layer: Layer,
+    name: string,
+    paid: boolean,
+    costClass: "free" | "paid-low" | "paid-variable",
+    endpoint: string,
+  ) {
+    this.layer = layer;
+    this.name = name;
+    this.paid = paid;
+    this.costClass = costClass;
+    this.endpoint = endpoint;
+  }
 
   async execute(input: Record<string, unknown>): Promise<unknown> {
     const response = await fetch(this.endpoint, {
@@ -100,11 +124,19 @@ class JsonHttpAdapter implements ProviderAdapter<Record<string, unknown>, unknow
 }
 
 export class ProviderRegistry {
+  private readonly config: ProviderConfig;
+  private readonly offline: boolean;
+  private readonly fixtures: FixtureFile;
+
   private constructor(
-    private readonly config: ProviderConfig,
-    private readonly offline: boolean,
-    private readonly fixtures: FixtureFile,
-  ) {}
+    config: ProviderConfig,
+    offline: boolean,
+    fixtures: FixtureFile,
+  ) {
+    this.config = config;
+    this.offline = offline;
+    this.fixtures = fixtures;
+  }
 
   static async create(config: ProviderConfig, offline: boolean, root = projectRoot): Promise<ProviderRegistry> {
     const fixtureText = await readFile(resolve(root, "fixtures", "providers.json"), "utf8");

@@ -79,6 +79,6 @@
   "map_tiles": { "protomaps": { "default": { "mode": "self-hosted" } }, "mapbox": { "default": { "mode": "paid" } } },
   "crawler": { "anycrawl_self_hosted": { "default": { "documents": [] } }, "anycrawl_cloud": { "default": { "documents": [] } } },
   "social": { "reddit": { "default": { "documents": [] } }, "social_data_service": { "default": { "documents": [] } } },
-  "mail": { "gmail": { "default": { "accepted": true, "messageId": "fixture-message" } }, "transactional_email": { "default": { "accepted": true, "messageId": "paid-fixture-message" } } },
+  "mail": { "gmail": { "default": { "accepted": true, "messageId": "fixture-message", "quotaError": false }, "inbox": { "replies": [] } }, "transactional_email": { "default": { "accepted": true, "messageId": "paid-fixture-message", "quotaError": false }, "inbox": { "replies": [] } } },
   "llm": { "scheduled_agent": { "default": { "classification": "fixture" } }, "claude_api": { "default": { "classification": "fixture" } } }
 }

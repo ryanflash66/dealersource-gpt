@@ -171,6 +171,13 @@ export interface ContactRecord {
   doNotContact: boolean;
 }
 
+export interface SystemStatus {
+  id: "mail";
+  paused: boolean;
+  reason: string | null;
+  updatedAt: string;
+}
+
 export interface StructuredLog {
   timestamp: string;
   runId: string;
@@ -201,6 +208,7 @@ export interface PipelineState {
   cases: CaseRecord[];
   messages: MessageRecord[];
   contacts: ContactRecord[];
+  system: SystemStatus[];
   runs: RunRecord[];
 }
 

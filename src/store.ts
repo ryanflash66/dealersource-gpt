@@ -17,6 +17,7 @@ export function emptyState(sources: SourceRecord[]): PipelineState {
     cases: [],
     messages: [],
     contacts: [],
+    system: [{ id: "mail", paused: false, reason: null, updatedAt: new Date(0).toISOString() }],
     runs: [],
   };
 }
@@ -32,6 +33,7 @@ export class JsonStateStore implements StateStore {
     try {
       const stored = JSON.parse(await readFile(this.path, "utf8")) as PipelineState;
       stored.sources = structuredClone(sources);
+      stored.system ??= [{ id: "mail", paused: false, reason: null, updatedAt: new Date(0).toISOString() }];
       return stored;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyState(sources);
@@ -58,6 +60,7 @@ const tableCollections: Array<{ table: string; collection: StateCollection }> = 
   { table: "contacts", collection: "contacts" },
   { table: "cases", collection: "cases" },
   { table: "messages", collection: "messages" },
+  { table: "system_state", collection: "system" },
   { table: "scores", collection: "sites" },
   { table: "runs", collection: "runs" },
 ];
@@ -101,6 +104,9 @@ function rowFor(table: string, value: Record<string, unknown>): Record<string, u
     id: value.id, case_id: value.caseId, site_id: value.siteId, recipient: value.recipient,
     direction: value.direction, template: value.template, sent_at: value.sentAt,
     dedupe_key: value.dedupeKey, status: value.status, payload: value,
+  };
+  if (table === "system_state") return {
+    id: value.id, paused: value.paused, reason: value.reason, updated_at: value.updatedAt, payload: value,
   };
   if (table === "scores") {
     const score = value.score as Record<string, unknown> | null;
@@ -150,6 +156,7 @@ export class SupabaseStateStore implements StateStore {
     for (const { collection, values } of results) {
       (state[collection] as unknown[]) = values;
     }
+    if (!state.system.length) state.system.push({ id: "mail", paused: false, reason: null, updatedAt: new Date(0).toISOString() });
     return state;
   }
 

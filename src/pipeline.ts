@@ -198,6 +198,41 @@ async function verify(
 ): Promise<void> {
   let sent = 0;
   const asOf = `${runDate}T23:59:59.999Z`;
+  const mailStatus = state.system.find((item) => item.id === "mail")!;
+  if (business.mail.paused) {
+    mailStatus.paused = true;
+    mailStatus.reason = "Paused in business.yaml";
+    mailStatus.updatedAt = asOf;
+  }
+  const inbox = await registry.call<{ replies?: Array<{ id: string; caseId: string; siteId: string; from: string; body: string; receivedAt: string }> }>(
+    "mail",
+    { fixtureKey: "inbox", operation: "poll" },
+    context,
+  );
+  for (const reply of inbox.replies ?? []) {
+    if (state.messages.some((message) => message.id === `message-inbound-${reply.id}`)) continue;
+    state.messages.push({
+      id: `message-inbound-${reply.id}`, caseId: reply.caseId, siteId: reply.siteId, recipient: reply.from,
+      direction: "inbound", template: "reply", sentAt: reply.receivedAt,
+      dedupeKey: `inbound:${reply.id}`, status: "received",
+    });
+    const caseRecord = state.cases.find((item) => item.id === reply.caseId);
+    const contact = state.contacts.find((item) => item.email === reply.from);
+    if (/\b(stop|unsubscribe|do not contact|remove me)\b/i.test(reply.body)) {
+      if (contact) contact.doNotContact = true;
+      if (caseRecord) caseRecord.status = "closed";
+      context.log({ level: "warn", event: "mail.do_not_contact", details: { contact: reply.from, caseId: reply.caseId } });
+    }
+  }
+  const cutoff = Date.parse(asOf) - 24 * 60 * 60 * 1000;
+  const recentOutbound = state.messages.filter((message) => message.direction === "outbound" && Date.parse(message.sentAt) >= cutoff);
+  const bounced = recentOutbound.filter((message) => message.status === "bounced").length;
+  const bounceRate = recentOutbound.length ? (bounced / recentOutbound.length) * 100 : 0;
+  if (bounceRate > business.mail.bounce_pause_pct) {
+    mailStatus.paused = true;
+    mailStatus.reason = `24-hour bounce rate ${bounceRate.toFixed(1)}% exceeds ${business.mail.bounce_pause_pct}%`;
+    mailStatus.updatedAt = asOf;
+  }
   for (const site of state.sites) {
     const gates = evaluateGates(site, state.evidence, business, asOf);
     for (const gate of gates.filter((item) => item.status === "unknown" || item.status === "expired")) {
@@ -222,17 +257,46 @@ async function verify(
       }
       site.stage = "verifying";
       const contact = state.contacts.find((candidate) => candidate.email === recipient.email);
-      if (contact?.doNotContact || business.mail.paused) continue;
+      if (contact?.doNotContact || mailStatus.paused) continue;
       if (!contact) state.contacts.push({ email: recipient.email, sourceUrl: recipient.sourceUrl, doNotContact: false });
-      const dedupeKey = `${caseId}:${recipient.email}:${runDate}:initial`;
+      const priorOutbound = state.messages
+        .filter((message) => message.caseId === caseId && message.direction === "outbound")
+        .sort((left, right) => right.sentAt.localeCompare(left.sentAt));
+      const initial = priorOutbound.length === 0;
+      if (!initial && Date.parse(caseRecord.nextActionAt) > Date.parse(asOf)) continue;
+      if (!initial && caseRecord.followups >= business.mail.max_followups) {
+        caseRecord.status = "escalated";
+        continue;
+      }
+      const sequence = initial ? "initial" : `followup-${caseRecord.followups + 1}`;
+      const dedupeKey = `${caseId}:${recipient.email}:${runDate}:${sequence}`;
       if (state.messages.some((message) => message.dedupeKey === dedupeKey)) continue;
-      if (caseRecord.followups > 0 || caseRecord.status === "closed" || caseRecord.status === "escalated") continue;
+      if (caseRecord.status === "closed" || caseRecord.status === "escalated") continue;
       const template = renderApprovedMessage(caseRecord, site);
-      const delivery = await registry.call<{ accepted: boolean; messageId: string }>(
-        "mail",
-        { fixtureKey: "default", to: recipient.email, ...template },
-        context,
-      );
+      let delivery: { accepted: boolean; messageId: string; quotaError?: boolean };
+      try {
+        delivery = await registry.call(
+          "mail",
+          { fixtureKey: "default", operation: "send", fromMode: business.mail.sender, to: recipient.email, ...template },
+          context,
+        );
+      } catch (error) {
+        if (/quota/i.test(error instanceof Error ? error.message : String(error))) {
+          mailStatus.paused = true;
+          mailStatus.reason = "Gmail quota error";
+          mailStatus.updatedAt = asOf;
+          context.log({ level: "error", event: "mail.auto_paused", details: { reason: mailStatus.reason } });
+          break;
+        }
+        throw error;
+      }
+      if (delivery.quotaError) {
+        mailStatus.paused = true;
+        mailStatus.reason = "Gmail quota error";
+        mailStatus.updatedAt = asOf;
+        context.log({ level: "error", event: "mail.auto_paused", details: { reason: mailStatus.reason } });
+        break;
+      }
       if (delivery.accepted) {
         state.messages.push({
           id: `message-${randomUUID()}`,
@@ -240,18 +304,19 @@ async function verify(
           siteId: site.id,
           recipient: recipient.email,
           direction: "outbound",
-          template: gate.name,
+          template: `${gate.name}:${sequence}`,
           sentAt: `${runDate}T10:00:00.000Z`,
           dedupeKey,
           status: context.offline ? "fixture-sent" : "sent",
         });
         caseRecord.status = "waiting";
+        if (!initial) caseRecord.followups += 1;
         caseRecord.nextActionAt = addDays(`${runDate}T10:00:00.000Z`, business.mail.followup_days);
         sent += 1;
       }
     }
   }
-  context.log({ level: "info", event: "stage.verify", details: { outboundMessages: sent, openCases: state.cases.length } });
+  context.log({ level: "info", event: "stage.verify", details: { outboundMessages: sent, openCases: state.cases.length, bounceRate, mailPaused: mailStatus.paused } });
 }
 
 function score(state: PipelineState, business: BusinessConfig, runDate: string, context: ProviderContext): void {
@@ -273,7 +338,8 @@ export function buildReport(
   run: RunRecord,
 ): DashboardReport {
   const exceptions: DashboardReport["exceptions"] = [];
-  if (business.mail.paused) exceptions.push({ type: "outreach", severity: "error", message: "Automated outreach is paused in business.yaml." });
+  const mailStatus = state.system.find((item) => item.id === "mail");
+  if (mailStatus?.paused) exceptions.push({ type: "outreach", severity: "error", message: `Automated outreach is paused: ${mailStatus.reason ?? "manual pause"}.` });
   for (const source of state.sources.filter((item) => !sourceIsSafe(item))) {
     exceptions.push({
       type: "source",
