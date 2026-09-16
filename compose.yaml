@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: dealersource
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local-development-only
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - dealersource-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dealersource"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+volumes:
+  dealersource-data:

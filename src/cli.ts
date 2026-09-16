@@ -1,45 +1,14 @@
-#!/usr/bin/env node
-import { resolve } from "node:path";
-import { runPipeline, stageNames, type StageName } from "./pipeline.ts";
-import { projectRoot } from "./config.ts";
-
-function valueAfter(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  return index >= 0 ? args[index + 1] : undefined;
-}
-
-function usage(): never {
-  console.error("Usage: pnpm pipeline --offline [--date YYYY-MM-DD] [--state PATH] [--stage discover|resolve|enrich|verify|score|report]");
-  process.exit(2);
-}
-
-const args = process.argv.slice(2);
-if (args.includes("--help")) usage();
-const offline = args.includes("--offline") || process.env.DEALERSOURCE_OFFLINE === "1";
-const runDate = valueAfter(args, "--date") ?? new Date().toISOString().slice(0, 10);
-const stateValue = valueAfter(args, "--state");
-const stageValue = valueAfter(args, "--stage") as StageName | undefined;
-if (!/^\d{4}-\d{2}-\d{2}$/.test(runDate)) usage();
-if (stageValue && !stageNames.includes(stageValue)) usage();
-
-try {
-  const result = await runPipeline({
-    offline,
-    runDate,
-    statePath: stateValue ? resolve(stateValue) : undefined,
-    stages: stageValue ? [stageValue] : undefined,
-  });
-  for (const entry of result.run.logs) console.log(JSON.stringify(entry));
-  console.log(JSON.stringify({
-    status: "ok",
-    runId: result.run.id,
-    mode: result.run.mode,
-    stages: result.run.stagesCompleted,
-    counts: result.run.counts,
-    paidCalls: result.run.paidCalls,
-    report: resolve(projectRoot, ".data", "report.json"),
-  }));
-} catch (error) {
-  console.error(JSON.stringify({ status: "error", message: error instanceof Error ? error.message : String(error) }));
-  process.exitCode = 1;
+import path from 'node:path';
+import { runPipeline,STAGES } from './pipeline.ts';
+import { ROOT } from './config.ts';
+export function parseArgs(args:string[]){const opts:any={};const used=new Set();for(let i=0;i<args.length;i++){
+ const a=args[i];if(used.has(a))throw new Error('Duplicate option '+a);used.add(a);
+ if(a==='--offline')opts.offline=true;else if(a==='--quiet')opts.quiet=true;else if(a==='--resume-mail')opts.resumeMail=true;
+ else if(['--day','--data-dir','--config-dir','--stage'].includes(a)){const value=args[++i];if(!value||value.startsWith('--'))throw new Error('Missing option value');opts[{'--day':'day','--data-dir':'dataDir','--config-dir':'configDir','--stage':'stage'}[a]!]=value;}
+ else if(a==='--help')opts.help=true;else throw new Error('Unknown option '+a);
+ }if(opts.stage&&!STAGES.includes(opts.stage))throw new Error('Unknown pipeline stage');return opts;}
+if(process.argv[1]&&path.resolve(process.argv[1])===path.join(ROOT,'src','cli.ts')){
+ try{const o=parseArgs(process.argv.slice(2));if(o.help)console.log('npm run pipeline -- --offline [--day YYYY-MM-DD] [--data-dir PATH] [--stage discover|resolve|enrich|verify|score|report] [--quiet] [--resume-mail]');
+ else{const r=await runPipeline(o);console.log(JSON.stringify({run_id:r.id,complete:r.complete,outbound:r.counts.outbound,inbound:r.counts.inbound,viable:r.shortlist.length,errors:r.errors.length,provider_calls:r.provider_calls.length,model_requests:r.model_requests}));if(!r.complete)process.exitCode=1;}}
+ catch(e:any){console.error(JSON.stringify({error:e.message}));process.exitCode=1;}
 }

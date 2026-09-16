@@ -1,108 +1,30 @@
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import type { BusinessConfig, ProviderConfig, SourceRecord } from "./types.ts";
-
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-function stripComment(line: string): string {
-  let single = false;
-  let double = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    if (char === "'" && !double) single = !single;
-    if (char === '"' && !single) double = !double;
-    if (char === "#" && !single && !double && (index === 0 || /\s/.test(line[index - 1]))) {
-      return line.slice(0, index).trimEnd();
-    }
-  }
-  return line.trimEnd();
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { AppConfig, Row } from './types.ts';
+export const ROOT=fileURLToPath(new URL('../',import.meta.url));
+export async function loadConfig(directory=ROOT):Promise<AppConfig> {
+ const read=async(name:string)=>JSON.parse(await readFile(path.join(directory,name),'utf8'));
+ const config={business:await read('business.yaml'),providers:await read('providers.yaml'),sources:await read('sources.yaml')};
+ validateConfig(config);return config;
 }
-
-function parseScalar(raw: string): unknown {
-  const value = raw.trim();
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (value === "null" || value === "~") return null;
-  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
-  if (value.startsWith("[") && value.endsWith("]")) {
-    const inner = value.slice(1, -1).trim();
-    return inner ? inner.split(",").map((item) => parseScalar(item)) : [];
-  }
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1);
-  }
-  return value;
+export function validateConfig(c:AppConfig):void {
+ const b=c.business;if(!b?.search?.home_base||!Number.isFinite(b.search.max_drive_minutes)||b.search.max_drive_minutes<=0)throw new Error('Invalid search');
+ if(!Number.isFinite(b.rent?.min_monthly)||!Number.isFinite(b.rent?.max_monthly)||b.rent.min_monthly<0||b.rent.max_monthly<b.rent.min_monthly)throw new Error('Invalid rent range');
+ if(!['exclude','last_resort','allowed'].includes(b.site?.shared_lot)||!Number.isInteger(b.site.min_vehicle_display)||b.site.min_vehicle_display<0||typeof b.site.office_required!=='boolean')throw new Error('Invalid site configuration');
+ if(b.dealer?.license_status!=='held')throw new Error('This application screens premises for a held license');
+ const w=b.ranking?.weights;const keys=['traffic','visibility','distance','rent','competitors'];if(!w||keys.some(k=>!Number.isFinite(w[k])||w[k]<0)||keys.some((k,i)=>i>0&&w[keys[i-1]]<w[k])||keys.reduce((s,k)=>s+w[k],0)<=0)throw new Error('Weights must be nonnegative and ordered by specified priority');
+ if(!Array.isArray(b.flood?.high_risk_zones)||!Number.isInteger(b.mail?.followup_days)||b.mail.followup_days<1||!Number.isInteger(b.mail.max_followups)||b.mail.max_followups<0||b.mail.bounce_pause_pct<0||b.mail.bounce_pause_pct>100||!['owner','operator'].includes(b.mail.sender))throw new Error('Invalid verification policy');
+ try{new Intl.DateTimeFormat('en',{timeZone:b.schedule.timezone}).format()}catch{throw new Error('Invalid timezone')}
+ if(typeof b.schedule.cron!=='string'||b.schedule.cron.trim().split(/\s+/).length!==5)throw new Error('Invalid cron');
+ if(typeof c.providers?.paid_enabled!=='boolean'||!c.providers.selections||!Array.isArray(c.sources?.sources))throw new Error('Invalid provider/source configuration');
+ const ids=new Set();for(const s of c.sources.sources){if(!s.id||ids.has(s.id)||!['crawl','reddit','rss','manual'].includes(s.kind)||!['allowed','disallowed','unknown'].includes(s.robots_txt)||!['allowed','prohibited','unclear'].includes(s.terms_status))throw new Error('Invalid or duplicate source');ids.add(s.id);}
 }
-
-function splitPair(text: string): [string, string] {
-  const separator = text.indexOf(":");
-  if (separator < 1) throw new Error(`Invalid YAML line: ${text}`);
-  return [text.slice(0, separator).trim(), text.slice(separator + 1).trim()];
+export function sourceDecision(s:Row):{allowed:boolean;reason:string} {
+ if(s.terms_status==='prohibited')return {allowed:false,reason:'Terms prohibit collection'};
+ if(s.robots_txt==='disallowed')return {allowed:false,reason:'robots.txt disallows collection'};
+ if(s.terms_status!=='allowed')return {allowed:false,reason:'Terms require explicit review'};
+ if(s.robots_txt!=='allowed')return {allowed:false,reason:'Robots permission unknown'};
+ if(!s.enabled)return {allowed:false,reason:'Disabled'};
+ return {allowed:true,reason:'Allowed'};
 }
-
-export function parseYaml(text: string): unknown {
-  const lines = text
-    .split(/\r?\n/)
-    .map((raw) => ({ raw: stripComment(raw), indent: raw.match(/^\s*/)?.[0].length ?? 0 }))
-    .filter((line) => line.raw.trim().length > 0);
-  const root: Record<string, unknown> = {};
-  const stack: Array<{ indent: number; value: Record<string, unknown> | unknown[] }> = [
-    { indent: -1, value: root },
-  ];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const { raw, indent } = lines[index];
-    const content = raw.trim();
-    while (stack.length > 1 && stack.at(-1)!.indent >= indent) stack.pop();
-    const parent = stack.at(-1)!.value;
-
-    if (content.startsWith("- ")) {
-      if (!Array.isArray(parent)) throw new Error(`YAML list has no array parent: ${content}`);
-      const itemText = content.slice(2).trim();
-      if (itemText.includes(":")) {
-        const item: Record<string, unknown> = {};
-        const [key, valueText] = splitPair(itemText);
-        item[key] = valueText ? parseScalar(valueText) : {};
-        parent.push(item);
-        stack.push({ indent, value: item });
-      } else {
-        parent.push(parseScalar(itemText));
-      }
-      continue;
-    }
-
-    if (Array.isArray(parent)) throw new Error(`YAML mapping has array parent: ${content}`);
-    const [key, valueText] = splitPair(content);
-    if (valueText) {
-      parent[key] = parseScalar(valueText);
-      continue;
-    }
-
-    const next = lines[index + 1];
-    const child: Record<string, unknown> | unknown[] =
-      next && next.indent > indent && next.raw.trim().startsWith("- ") ? [] : {};
-    parent[key] = child;
-    stack.push({ indent, value: child });
-  }
-  return root;
-}
-
-export async function loadYaml<T>(path: string): Promise<T> {
-  return parseYaml(await readFile(path, "utf8")) as T;
-}
-
-export async function loadConfig(root = projectRoot): Promise<{
-  business: BusinessConfig;
-  providers: ProviderConfig;
-  sources: SourceRecord[];
-}> {
-  const [business, providers, sourceFile] = await Promise.all([
-    loadYaml<BusinessConfig>(resolve(root, "business.yaml")),
-    loadYaml<ProviderConfig>(resolve(root, "providers.yaml")),
-    loadYaml<{ sources: SourceRecord[] }>(resolve(root, "sources.yaml")),
-  ]);
-  return { business, providers, sources: sourceFile.sources };
-}
-
-export { projectRoot };

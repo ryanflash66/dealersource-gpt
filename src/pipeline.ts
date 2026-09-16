@@ -1,423 +1,142 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
-import { loadConfig, projectRoot } from "./config.ts";
-import { ProviderRegistry, type ProviderContext } from "./providers.ts";
-import { selectStateStore } from "./store.ts";
-import { evaluateGates, hasOperationalRequirements } from "./gates.ts";
-import { rankSites, scoreSite } from "./scoring.ts";
-import { renderApprovedMessage } from "./templates.ts";
-import type {
-  BusinessConfig,
-  CaseRecord,
-  DashboardReport,
-  Evidence,
-  ListingExtraction,
-  PipelineState,
-  RawDocument,
-  RunRecord,
-  SiteRecord,
-  StructuredLog,
-} from "./types.ts";
+import { randomUUID } from 'node:crypto';
+import { readFile,writeFile,mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { loadConfig,sourceDecision,ROOT } from './config.ts';
+import { Registry } from './providers/index.ts';
+import { FileStore,SupabaseStore } from './store.ts';
+import { Model } from './model.ts';
+import { createReport } from './report.ts';
+import { Gmail,renderTemplate,allowedContact,contactDue,mailPaused } from './mail.ts';
+import { assess,rank,score,current } from './gates.ts';
+import { measureFlood } from './flood.ts';
+import { id,canonical,iso,shift,safeURL } from './util.ts';
+import type { Row,Store,Evidence,AppConfig,ProviderResult } from './types.ts';
+export const STAGES=['discover','resolve','enrich','verify','score','report'];
+export type Options={offline?:boolean;day?:string;dataDir?:string;configDir?:string;config?:AppConfig;store?:Store;registry?:Registry;env?:NodeJS.ProcessEnv;stage?:string;quiet?:boolean;resumeMail?:boolean};
 
-export const stageNames = ["discover", "resolve", "enrich", "verify", "score", "report"] as const;
-export type StageName = (typeof stageNames)[number];
-
-export interface PipelineOptions {
-  offline: boolean;
-  runDate: string;
-  root?: string;
-  statePath?: string;
-  reportPath?: string;
-  stages?: StageName[];
+function evidence(store:Store,site:Row,fact:string,value:any,source:string,now:string,days:number,method:string,synthetic:boolean,sourceKind:string,raw?:string):Evidence {
+ const key=id(site.id,fact,value,source,method);const existing=store.all('evidence').find(e=>e.id===key);if(existing)return existing as Evidence;
+ const e={id:key,site_id:site.id,fact,value,source_url:source,fetched_at:now,expires_at:shift(now,days),method,source_kind:sourceKind,synthetic,scope:site.suite,raw_document_id:raw};store.put('evidence',e);return e;
 }
+function rawDoc(store:Store,result:ProviderResult,sourceId:string,now:string):string {const key=id(sourceId,result.raw);if(!store.all('raw_documents').some(r=>r.id===key))store.put('raw_documents',{id:key,source_id:sourceId,source_url:result.source_url,payload:result.raw,fetched_at:now,synthetic:result.synthetic});return key;}
+function latest(store:Store,siteId:string,fact:string):Evidence|undefined{return store.all('evidence').filter(e=>e.site_id===siteId&&e.fact===fact).sort((a,b)=>Date.parse(b.fetched_at)-Date.parse(a.fetched_at))[0] as Evidence|undefined;}
 
-function upsertById<T extends { id: string }>(records: T[], next: T): void {
-  const index = records.findIndex((record) => record.id === next.id);
-  if (index >= 0) records[index] = next;
-  else records.push(next);
-}
-
-function addDays(iso: string, days: number): string {
-  const date = new Date(iso);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString();
-}
-
-function mergeListings(siteKey: string, listings: ListingExtraction[], documents: RawDocument[]): SiteRecord {
-  const rentListing = listings.find((listing) => listing.writtenRentQuote && listing.monthlyRent !== null);
-  const primary = rentListing ?? listings[0];
-  return {
-    id: `site-${siteKey}`,
-    siteKey,
-    address: primary.address,
-    latitude: null,
-    longitude: null,
-    parcelId: null,
-    listingIds: listings.map((listing) => listing.listingId).sort(),
-    sourceUrls: [...new Set(documents.filter((document) => listings.some((listing) => listing.listingId === document.extraction.listingId)).map((document) => document.sourceUrl))],
-    monthlyRent: rentListing?.monthlyRent ?? null,
-    office: listings.find((listing) => listing.office !== null)?.office ?? null,
-    vehicleDisplay: Math.max(...listings.map((listing) => listing.vehicleDisplay ?? 0)),
-    sharedLot: listings.some((listing) => listing.sharedLot),
-    stage: "discovered",
-    metrics: { aadt: null, frontageFeet: null, cornerLot: null, signageVisible: null, driveMinutes: null, competitors: null },
-    imagery: [],
-    gates: [],
-    viable: false,
-    score: null,
-  };
-}
-
-function evidenceRecord(siteId: string, fact: string, value: unknown, raw: Record<string, unknown>): Evidence {
-  return {
-    id: `evidence-${siteId}-${fact}`,
-    siteId,
-    fact,
-    value,
-    sourceUrl: String(raw.sourceUrl ?? ""),
-    fetchedAt: String(raw.fetchedAt ?? ""),
-    expiresAt: String(raw.expiresAt ?? ""),
-    method: String(raw.method ?? "recorded-fixture"),
-    verified: raw.verified === true,
-    citation: raw.citation ? String(raw.citation) : undefined,
-  };
-}
-
-export function sourceIsSafe(source: PipelineState["sources"][number]): boolean {
-  if (!source.enabled) return false;
-  if (source.kind === "manual") return true;
-  return source.robots_txt === "allowed" && source.terms_status === "allowed";
-}
-
-async function discover(state: PipelineState, root: string, run: RunRecord, log: ProviderContext["log"]): Promise<void> {
-  const fixtureDocuments = JSON.parse(await readFile(resolve(root, "fixtures", "listings.json"), "utf8")) as RawDocument[];
-  const safeSourceIds = new Set(state.sources.filter(sourceIsSafe).map((source) => source.id));
-  for (const document of fixtureDocuments.filter((item) => safeSourceIds.has(item.sourceId))) {
-    upsertById(state.rawDocuments, document);
-    if (!state.listings.some((listing) => listing.listingId === document.extraction.listingId)) {
-      state.listings.push(structuredClone(document.extraction));
+export async function runPipeline(options:Options={}):Promise<Row>{
+ const config=options.config??await loadConfig(options.configDir);const b=config.business;const offline=options.offline??false;const env=options.env??process.env;
+ const directory=options.dataDir??path.join(ROOT,'.data');const registry=options.registry??new Registry(config,offline,env);const now=iso(options.day?options.day.includes('T')?options.day:options.day+'T10:00:00Z':new Date());
+ const owned=!options.store;const store=options.store??(!offline&&env.SUPABASE_URL&&env.SUPABASE_SERVICE_ROLE_KEY?await SupabaseStore.open(env.SUPABASE_URL,env.SUPABASE_SERVICE_ROLE_KEY,(u,o)=>registry.transport.request(u,o)):await FileStore.open(path.join(directory,'state.json')));
+ const model=new Model(registry),gmail=new Gmail(registry);const run:Row={id:randomUUID(),started_at:now,day:now.slice(0,10),mode:offline?'offline':'auto',stages:[],counts:{discovered:0,new_sites:0,outbound:0,inbound:0},errors:[],provider_calls:[],complete:false};
+ if(options.resumeMail){store.state.controls.sending_paused=false;store.state.controls.pause_reason=null;}
+ store.put('runs',run);const log=(event:string,details:Row={})=>{const item={time:now,run_id:run.id,event,...details};if(!options.quiet)console.log(JSON.stringify(item));};
+ let home:Row={lat:35.6127,lon:-77.3664};
+ const failed=(stage:string,error:any,siteId?:string)=>{const item={stage,site_id:siteId??null,message:String(error.message).slice(0,1000)};run.errors.push(item);log('error',item);};
+ try{
+  for(const stage of STAGES){if(options.stage&&options.stage!==stage)continue;
+   try{
+    if(stage==='discover'){
+     for(const source of config.sources.sources){const decision=sourceDecision(source);store.put('sources',{...source,excluded_reason:decision.allowed?null:decision.reason});if(!decision.allowed)continue;
+      try{
+       let result:ProviderResult;
+       if(source.url.startsWith('fixture:'))result=await new (await import('./providers/index.ts')).FixtureProvider('crawling','anycrawl').execute({now});
+       else if(source.kind==='manual')continue;
+       else if(source.kind==='reddit'){
+        const social=registry.get('social');result=await social.execute({subreddit:config.sources.subreddits.join('+'),now});
+       }else{safeURL(source.url);result=await registry.get('crawling').execute({url:source.url,now,kind:source.kind});}
+       const doc=rawDoc(store,result,source.id,now);const extracted=await model.extract(result.data??{},result.source_url);
+       store.put('raw_documents',{id:doc,extraction:extracted,extraction_method:registry.config.providers.selections.llm});
+       for(const listing of extracted){
+        const listingId=id(source.id,listing.external_id),siteId=id(canonical(listing.address),canonical(listing.suite??'office'));
+        const prior=store.all('sites').find(s=>s.id===siteId);const prevListing=store.all('listings').find(l=>l.id===listingId);run.counts.discovered++;
+        if(!prior){store.put('sites',{...listing,id:siteId,listing_id:listing.external_id,first_seen:now,source_url:result.source_url,source_ids:[source.id],synthetic:result.synthetic,stage:'discovered'});run.counts.new_sites++;}
+        else store.put('sites',{id:siteId,source_ids:[...new Set([...(prior.source_ids??[]),source.id])]});
+        store.put('listings',{id:listingId,site_id:siteId,source_id:source.id,raw_document_id:doc,extraction:listing,first_seen:prevListing?.first_seen??now,last_seen:now});
+        const site=store.all('sites').find(s=>s.id===siteId)!;
+        if(listing.quote_written&&Number.isFinite(listing.base_monthly))evidence(store,site,'rent',{monthly:listing.base_monthly,currency:'USD',written:true},result.source_url,shift(site.first_seen,-(listing.quote_age_days??0)),b.evidence.rent_days,'written_quote',result.synthetic,'leasing',doc);
+        if(listing.leasing_email&&JSON.stringify(result.raw).toLowerCase().includes(listing.leasing_email.toLowerCase()))store.put('contacts',{id:id(listing.leasing_email.toLowerCase()),email:listing.leasing_email.toLowerCase(),kind:'leasing',source_url:result.source_url,synthetic:result.synthetic,do_not_contact:store.all('contacts').find(c=>c.id===id(listing.leasing_email.toLowerCase()))?.do_not_contact??false});
+       }
+      }catch(e){failed(stage,e);}
+     }
     }
-  }
-  const excluded = state.sources.filter((source) => !sourceIsSafe(source)).length;
-  run.counts.discoveredDocuments = state.rawDocuments.length;
-  run.counts.excludedSources = excluded;
-  log({ level: "info", event: "stage.discover", details: { documents: state.rawDocuments.length, excludedSources: excluded } });
-}
-
-async function resolveSites(
-  state: PipelineState,
-  registry: ProviderRegistry,
-  business: BusinessConfig,
-  context: ProviderContext,
-): Promise<void> {
-  const grouped = Map.groupBy(state.listings, (listing) => listing.siteKey);
-  for (const [siteKey, listings] of grouped) {
-    const existing = state.sites.find((site) => site.siteKey === siteKey);
-    const site = existing ?? mergeListings(siteKey, listings, state.rawDocuments);
-    if (!existing) state.sites.push(site);
-    const geocode = await registry.call<{ canonicalAddress: string; latitude: number; longitude: number }>(
-      "geocoder",
-      { fixtureKey: siteKey, address: site.address },
-      context,
-    );
-    const parcel = await registry.call<{ parcelId: string }>("parcels", { fixtureKey: siteKey, ...geocode }, context);
-    site.address = geocode.canonicalAddress;
-    site.latitude = geocode.latitude;
-    site.longitude = geocode.longitude;
-    site.parcelId = parcel.parcelId;
-    site.stage = "resolved";
-
-    const written = listings.find((listing) => listing.writtenRentQuote && listing.monthlyRent !== null);
-    if (written) {
-      const document = state.rawDocuments.find((item) => item.extraction.listingId === written.listingId)!;
-      upsertById(state.evidence, {
-        id: `evidence-${site.id}-rent`,
-        siteId: site.id,
-        fact: "rent",
-        value: { monthlyRent: written.monthlyRent },
-        sourceUrl: document.sourceUrl,
-        fetchedAt: document.fetchedAt,
-        expiresAt: addDays(document.fetchedAt, business.evidence.default_ttl_days),
-        method: "written-listing-quote",
-        verified: true,
-      });
+    if(stage==='resolve'){
+     const geo=registry.get('geocoding');if(!geo.fixture){const h=await geo.execute({address:b.search.home_base,now});if(!h.data)throw new Error('Home geocode unresolved');home=h.data;}
+     for(const site of store.all('sites'))try{
+      const geoResult=await geo.execute({...site,now});rawDoc(store,geoResult,'provider-geocoding',now);if(!geoResult.data)throw new Error('Site geocode unresolved');
+      const parcel=await registry.get('parcels').execute({...site,...geoResult.data,now});const doc=rawDoc(store,parcel,'provider-parcels',now);if(!parcel.data?.id)throw new Error('Parcel unresolved');
+      store.put('parcels',{...parcel.data,id:parcel.data.id,raw_document_id:doc});store.put('sites',{id:site.id,geo:geoResult.data,parcel_id:parcel.data.id,stage:'resolved'});
+     }catch(e){failed(stage,e,site.id);}
     }
-  }
-  context.log({ level: "info", event: "stage.resolve", details: { sites: state.sites.length, provider: registry.selected("geocoder") } });
-}
-
-async function enrich(
-  state: PipelineState,
-  registry: ProviderRegistry,
-  context: ProviderContext,
-): Promise<void> {
-  for (const site of state.sites) {
-    const fixtureKey = site.siteKey;
-    const [zoning, flood, traffic, driveTime, imagery, competitors] = await Promise.all([
-      registry.call<Record<string, unknown>>("zoning", { fixtureKey, parcelId: site.parcelId }, context),
-      registry.call<Record<string, unknown>>("flood", { fixtureKey, parcelId: site.parcelId }, context),
-      registry.call<{ aadt: number }>("traffic", { fixtureKey, latitude: site.latitude, longitude: site.longitude }, context),
-      registry.call<{ minutes: number }>("drive_time", { fixtureKey, destination: site.address }, context),
-      registry.call<{ urls: string[]; frontageFeet: number; cornerLot: boolean; signageVisible: boolean }>("imagery", { fixtureKey }, context),
-      registry.call<{ count: number }>("competitors", { fixtureKey, latitude: site.latitude, longitude: site.longitude }, context),
-    ]);
-    upsertById(state.evidence, evidenceRecord(site.id, "zoning", zoning, zoning));
-    upsertById(state.evidence, evidenceRecord(site.id, "flood", flood, flood));
-    site.metrics.aadt = traffic.aadt;
-    site.metrics.driveMinutes = driveTime.minutes;
-    site.metrics.frontageFeet = imagery.frontageFeet;
-    site.metrics.cornerLot = imagery.cornerLot;
-    site.metrics.signageVisible = imagery.signageVisible;
-    site.metrics.competitors = competitors.count;
-    site.imagery = imagery.urls;
-    site.stage = "enriched";
-  }
-  context.log({ level: "info", event: "stage.enrich", details: { sites: state.sites.length } });
-}
-
-function recipientForCase(state: PipelineState, site: SiteRecord, type: CaseRecord["type"]): { email: string; sourceUrl: string } | null {
-  if (type === "zoning" || type === "flood") {
-    const item = state.evidence.find((candidate) => candidate.siteId === site.id && candidate.fact === type);
-    const value = item?.value as { authorityEmail?: string } | undefined;
-    return value?.authorityEmail && item?.sourceUrl ? { email: value.authorityEmail, sourceUrl: item.sourceUrl } : null;
-  }
-  for (const listingId of site.listingIds) {
-    const listing = state.listings.find((candidate) => candidate.listingId === listingId);
-    if (listing?.contactEmail && listing.contactSourceUrl) return { email: listing.contactEmail, sourceUrl: listing.contactSourceUrl };
-  }
-  return null;
-}
-
-async function verify(
-  state: PipelineState,
-  registry: ProviderRegistry,
-  business: BusinessConfig,
-  context: ProviderContext,
-  runDate: string,
-): Promise<void> {
-  let sent = 0;
-  const asOf = `${runDate}T23:59:59.999Z`;
-  const mailStatus = state.system.find((item) => item.id === "mail")!;
-  if (business.mail.paused) {
-    mailStatus.paused = true;
-    mailStatus.reason = "Paused in business.yaml";
-    mailStatus.updatedAt = asOf;
-  }
-  const inbox = await registry.call<{ replies?: Array<{ id: string; caseId: string; siteId: string; from: string; body: string; receivedAt: string }> }>(
-    "mail",
-    { fixtureKey: "inbox", operation: "poll" },
-    context,
-  );
-  for (const reply of inbox.replies ?? []) {
-    if (state.messages.some((message) => message.id === `message-inbound-${reply.id}`)) continue;
-    state.messages.push({
-      id: `message-inbound-${reply.id}`, caseId: reply.caseId, siteId: reply.siteId, recipient: reply.from,
-      direction: "inbound", template: "reply", sentAt: reply.receivedAt,
-      dedupeKey: `inbound:${reply.id}`, status: "received",
-    });
-    const caseRecord = state.cases.find((item) => item.id === reply.caseId);
-    const contact = state.contacts.find((item) => item.email === reply.from);
-    if (/\b(stop|unsubscribe|do not contact|remove me)\b/i.test(reply.body)) {
-      if (contact) contact.doNotContact = true;
-      if (caseRecord) caseRecord.status = "closed";
-      context.log({ level: "warn", event: "mail.do_not_contact", details: { contact: reply.from, caseId: reply.caseId } });
+    if(stage==='enrich'){
+     for(const site of store.all('sites')){if(!site.geo)continue;const parcel=store.all('parcels').find(p=>p.id===site.parcel_id);
+      for(const layer of ['zoning','flood','traffic','drive_time','imagery','competitors'] as const)try{
+       const result=await registry.get(layer).execute({...site,...site.geo,parcel,home_base:b.search.home_base,home_lat:home.lat,home_lon:home.lon,max_drive_minutes:b.search.max_drive_minutes,radius_m:b.search.competitor_radius_m,now});const doc=rawDoc(store,result,'provider-'+layer,now);
+       let value=result.data;if(layer==='flood'&&value?.features&&parcel)value=measureFlood(parcel,value.features,b.flood.high_risk_zones);
+       if(!value)throw new Error(`No ${layer} evidence`);
+       if(layer==='zoning'){
+        const contact=value.planning_email;if(contact&&value.planning_contact_source){const old=store.all('contacts').find(c=>c.id===id(contact.toLowerCase()));store.put('contacts',{id:id(contact.toLowerCase()),email:contact.toLowerCase(),kind:'official',source_url:value.planning_contact_source,synthetic:result.synthetic,do_not_contact:old?.do_not_contact??false});site.planning_email=contact;}
+        evidence(store,site,'zoning',value,result.source_url,value.confirmed_at??now,b.evidence.zoning_days,value.method??'official_layer_and_use_table',result.synthetic,'official',doc);
+       }else if(layer==='flood')evidence(store,site,'flood',value,result.source_url,now,b.evidence.flood_days,'centroid_and_area',result.synthetic,'official',doc);
+       else {const field=layer==='drive_time'?'drive':layer;store.put('sites',{id:site.id,[field]:value});evidence(store,site,field,value,result.source_url,now,b.evidence.context_days,result.method,result.synthetic,'context',doc);}
+      }catch(e){failed(stage,e,site.id);}
+     }
+     for(const broker of store.all('sites').flatMap(s=>s.competitors?.brokers??[])){if(!broker.url)continue;safeURL(broker.url);const sid=id('broker',broker.url);if(!store.all('sources').some(s=>s.id===sid))store.put('sources',{id:sid,kind:'crawl',url:broker.url,robots_txt:'unknown',terms_status:'unclear',enabled:false,cadence:'daily',excluded_reason:'Discovered broker requires terms/robots review'});}
     }
-  }
-  const cutoff = Date.parse(asOf) - 24 * 60 * 60 * 1000;
-  const recentOutbound = state.messages.filter((message) => message.direction === "outbound" && Date.parse(message.sentAt) >= cutoff);
-  const bounced = recentOutbound.filter((message) => message.status === "bounced").length;
-  const bounceRate = recentOutbound.length ? (bounced / recentOutbound.length) * 100 : 0;
-  if (bounceRate > business.mail.bounce_pause_pct) {
-    mailStatus.paused = true;
-    mailStatus.reason = `24-hour bounce rate ${bounceRate.toFixed(1)}% exceeds ${business.mail.bounce_pause_pct}%`;
-    mailStatus.updatedAt = asOf;
-  }
-  for (const site of state.sites) {
-    const gates = evaluateGates(site, state.evidence, business, asOf);
-    for (const gate of gates.filter((item) => item.status === "unknown" || item.status === "expired")) {
-      const recipient = recipientForCase(state, site, gate.name);
-      if (!recipient) continue;
-      const caseId = `case-${site.id}-${gate.name}`;
-      let caseRecord = state.cases.find((candidate) => candidate.id === caseId);
-      if (!caseRecord) {
-        caseRecord = {
-          id: caseId,
-          siteId: site.id,
-          type: gate.name,
-          owner: gate.name === "zoning" || gate.name === "flood" ? "planning-authority" : "leasing-contact",
-          recipient: recipient.email,
-          recipientSourceUrl: recipient.sourceUrl,
-          status: "open",
-          openedAt: `${runDate}T10:00:00.000Z`,
-          nextActionAt: `${runDate}T10:00:00.000Z`,
-          followups: 0,
-        };
-        state.cases.push(caseRecord);
+    if(stage==='verify'){
+     for(const site of store.all('sites')){
+      const a=assess(site,store.all('evidence') as Evidence[],b,now);store.put('sites',{id:site.id,...a});
+      if(Object.values(a.gates).some((g:any)=>g.status==='FAIL')||a.blockers.some((x:string)=>/Drive-time|Enclosed office|capacity|Shared site excluded/.test(x)))continue;
+      const unknown=Object.entries(a.gates).filter(([,g]:any)=>g.status==='UNKNOWN').map(([f])=>f);
+      for(const fact of unknown){const caseId=id(site.id,fact);if(store.all('cases').some(c=>c.id===caseId&&c.status!=='resolved'))continue;
+       const recipient=fact==='rent'?site.leasing_email:site.planning_email;const contact=store.all('contacts').find(c=>c.email===recipient);
+       const valid=contact&&allowedContact(recipient,contact.source_url,contact.kind,contact.synthetic);
+       store.put('cases',{id:caseId,site_id:site.id,listing_id:site.listing_id,fact,recipient:valid?recipient:null,contact_kind:contact?.kind??null,owner:fact==='rent'?'leasing_contact':'planning_authority',status:valid?'open':'escalated',created_at:now,next_action:valid?'send approved inquiry':'No verified published recipient; obtain official data',next_action_at:now,followups:0});
       }
-      site.stage = "verifying";
-      const contact = state.contacts.find((candidate) => candidate.email === recipient.email);
-      if (contact?.doNotContact || mailStatus.paused) continue;
-      if (!contact) state.contacts.push({ email: recipient.email, sourceUrl: recipient.sourceUrl, doNotContact: false });
-      const priorOutbound = state.messages
-        .filter((message) => message.caseId === caseId && message.direction === "outbound")
-        .sort((left, right) => right.sentAt.localeCompare(left.sentAt));
-      const initial = priorOutbound.length === 0;
-      if (!initial && Date.parse(caseRecord.nextActionAt) > Date.parse(asOf)) continue;
-      if (!initial && caseRecord.followups >= business.mail.max_followups) {
-        caseRecord.status = "escalated";
-        continue;
+     }
+     const ingestReplies=async()=>{
+     const pending=store.all('messages').filter(m=>m.status==='pending_model').map(m=>m.payload);
+     for(const raw of [...pending,...await gmail.replies(store)]){
+      const mid=id('inbound',raw.external_id);const existing=store.all('messages').find(m=>m.id===mid);if(existing&&existing.status!=='pending_model')continue;
+      const c=store.all('cases').find(c=>raw.case_id?c.id===raw.case_id:c.listing_id===raw.site_listing_id&&c.fact===raw.fact);if(!c)continue;
+      const answer=await model.classify(raw,c);store.put('messages',{id:mid,site_id:c.site_id,case_id:c.id,direction:'inbound',created_at:existing?.created_at??now,provider_id:raw.external_id,body:raw.body,payload:raw,status:answer.pending?'pending_model':'received',synthetic:gmail.fixture});if(!existing)run.counts.inbound++;
+      if(answer.stop){const contact=store.all('contacts').find(x=>x.email===raw.from);if(contact)store.put('contacts',{id:contact.id,do_not_contact:true});store.put('cases',{id:c.id,status:'suppressed',next_action:'Contact requested stop'});continue;}
+      if(answer.accepted){const site=store.all('sites').find(s=>s.id===c.site_id)!;const source=gmail.fixture?'fixture://gmail/'+raw.external_id:'https://mail.google.com/mail/u/0/#all/'+raw.external_id;
+       const doc=rawDoc(store,{raw,data:answer.value,source_url:source,method:'email',synthetic:gmail.fixture},'gmail',now);
+       evidence(store,site,c.fact,answer.value,source,now,b.evidence[c.fact+'_days']??7,c.fact==='zoning'?'authority_email':'written_quote',gmail.fixture,c.contact_kind,doc);store.put('cases',{id:c.id,status:'resolved',next_action:'Reassess site'});
       }
-      const sequence = initial ? "initial" : `followup-${caseRecord.followups + 1}`;
-      const dedupeKey = `${caseId}:${recipient.email}:${runDate}:${sequence}`;
-      if (state.messages.some((message) => message.dedupeKey === dedupeKey)) continue;
-      if (caseRecord.status === "closed" || caseRecord.status === "escalated") continue;
-      const template = renderApprovedMessage(caseRecord, site);
-      let delivery: { accepted: boolean; messageId: string; quotaError?: boolean };
-      try {
-        delivery = await registry.call(
-          "mail",
-          { fixtureKey: "default", operation: "send", fromMode: business.mail.sender, to: recipient.email, ...template },
-          context,
-        );
-      } catch (error) {
-        if (/quota/i.test(error instanceof Error ? error.message : String(error))) {
-          mailStatus.paused = true;
-          mailStatus.reason = "Gmail quota error";
-          mailStatus.updatedAt = asOf;
-          context.log({ level: "error", event: "mail.auto_paused", details: { reason: mailStatus.reason } });
-          break;
-        }
-        throw error;
-      }
-      if (delivery.quotaError) {
-        mailStatus.paused = true;
-        mailStatus.reason = "Gmail quota error";
-        mailStatus.updatedAt = asOf;
-        context.log({ level: "error", event: "mail.auto_paused", details: { reason: mailStatus.reason } });
-        break;
-      }
-      if (delivery.accepted) {
-        state.messages.push({
-          id: `message-${randomUUID()}`,
-          caseId,
-          siteId: site.id,
-          recipient: recipient.email,
-          direction: "outbound",
-          template: `${gate.name}:${sequence}`,
-          sentAt: `${runDate}T10:00:00.000Z`,
-          dedupeKey,
-          status: context.offline ? "fixture-sent" : "sent",
-        });
-        caseRecord.status = "waiting";
-        if (!initial) caseRecord.followups += 1;
-        caseRecord.nextActionAt = addDays(`${runDate}T10:00:00.000Z`, business.mail.followup_days);
-        sent += 1;
-      }
+     }
+     };
+     await ingestReplies();
+     for(const c of store.all('cases')){
+      if(!['open','awaiting_reply'].includes(c.status)||Date.parse(c.next_action_at)>Date.parse(now))continue;
+      const site=store.all('sites').find(s=>s.id===c.site_id)!;const contact=store.all('contacts').find(x=>x.email===c.recipient);
+      if(!contact||contact.do_not_contact){store.put('cases',{id:c.id,status:'suppressed',next_action:'Do not contact'});continue;}
+      if(mailPaused(store,b.mail,now))break;
+      if(c.status==='awaiting_reply'&&c.followups>=b.mail.max_followups){store.put('cases',{id:c.id,status:'escalated',next_action:'No response after configured follow-ups'});continue;}
+      if(!contactDue(store,site,c.recipient,now,b.mail.followup_days))continue;
+      const previous=store.all('messages').find(m=>m.case_id===c.id&&['dispatching','uncertain'].includes(m.status));if(previous){store.put('cases',{id:c.id,status:'escalated',next_action:'Reconcile uncertain send; never blindly resend'});continue;}
+      const attempt=store.all('messages').filter(m=>m.case_id===c.id&&m.direction==='outbound').length;
+      const message={id:id(c.id,attempt),run_id:run.id,site_id:site.id,case_id:c.id,direction:'outbound',recipient:c.recipient,created_at:now,body:renderTemplate(c.fact,site),status:'dispatching',synthetic:gmail.fixture};
+      store.put('messages',message);await store.save();
+      try{const sent=await gmail.send(message);store.put('messages',{id:message.id,status:'sent',provider_id:sent.id,thread_id:sent.threadId});store.put('cases',{id:c.id,status:'awaiting_reply',followups:Math.max(0,attempt),next_action:'Await reply or follow up',next_action_at:shift(now,b.mail.followup_days)});run.counts.outbound++;}
+      catch(e:any){store.put('messages',{id:message.id,status:'uncertain',error:e.message});store.put('cases',{id:c.id,status:'escalated',next_action:'Reconcile uncertain send'});if(e.status===429||e.status===403){store.state.controls.sending_paused=true;store.state.controls.pause_reason='Gmail quota or authorization error';}failed(stage,e,site.id);}
+      await store.save();
+     }
+     await ingestReplies();
     }
-  }
-  context.log({ level: "info", event: "stage.verify", details: { outboundMessages: sent, openCases: state.cases.length, bounceRate, mailPaused: mailStatus.paused } });
-}
-
-function score(state: PipelineState, business: BusinessConfig, runDate: string, context: ProviderContext): void {
-  const asOf = `${runDate}T23:59:59.999Z`;
-  for (const site of state.sites) {
-    site.gates = evaluateGates(site, state.evidence, business, asOf);
-    site.viable = site.gates.every((gate) => gate.status === "pass") && hasOperationalRequirements(site, business);
-    site.score = site.viable ? scoreSite(site, business) : null;
-    if (site.stage !== "verifying") site.stage = "scored";
-  }
-  const viable = state.sites.filter((site) => site.viable).length;
-  context.log({ level: "info", event: "stage.score", details: { viable } });
-}
-
-export function buildReport(
-  state: PipelineState,
-  business: BusinessConfig,
-  providers: Awaited<ReturnType<typeof loadConfig>>["providers"],
-  run: RunRecord,
-): DashboardReport {
-  const exceptions: DashboardReport["exceptions"] = [];
-  const mailStatus = state.system.find((item) => item.id === "mail");
-  if (mailStatus?.paused) exceptions.push({ type: "outreach", severity: "error", message: `Automated outreach is paused: ${mailStatus.reason ?? "manual pause"}.` });
-  for (const source of state.sources.filter((item) => !sourceIsSafe(item))) {
-    exceptions.push({
-      type: "source",
-      severity: source.terms_status === "prohibited" || source.robots_txt === "disallowed" ? "error" : "warning",
-      message: `${source.name} excluded: robots=${source.robots_txt}, terms=${source.terms_status}.`,
-    });
-  }
-  for (const item of state.evidence.filter((evidence) => Date.parse(evidence.expiresAt) <= Date.parse(`${run.runDate}T23:59:59.999Z`))) {
-    exceptions.push({ type: "evidence", severity: "warning", message: `${item.fact} evidence expired for ${item.siteId}.` });
-  }
-  return {
-    generatedAt: run.completedAt ?? `${run.runDate}T23:59:59.999Z`,
-    runId: run.id,
-    shortlist: rankSites(state.sites.filter((site) => site.viable)),
-    pipeline: rankSites(state.sites),
-    cases: state.cases.filter((item) => item.status !== "closed"),
-    exceptions,
-    config: { business, providers },
-  };
-}
-
-export async function runPipeline(options: PipelineOptions): Promise<{ state: PipelineState; report: DashboardReport; run: RunRecord }> {
-  const root = options.root ?? projectRoot;
-  const statePath = options.statePath ?? resolve(root, ".data", "state.json");
-  const reportPath = options.reportPath ?? resolve(root, ".data", "report.json");
-  const config = await loadConfig(root);
-  const store = selectStateStore(options.offline, statePath);
-  const state = await store.load(config.sources);
-  const runSequence = state.runs.filter((item) => item.runDate === options.runDate).length + 1;
-  const run: RunRecord = {
-    id: `run-${options.runDate}-${String(runSequence).padStart(3, "0")}`,
-    runDate: options.runDate,
-    mode: options.offline ? "offline" : "live",
-    startedAt: `${options.runDate}T09:00:00.000Z`,
-    completedAt: null,
-    stagesCompleted: [],
-    counts: {},
-    errors: [],
-    paidCalls: 0,
-    logs: [],
-  };
-  state.runs.push(run);
-  const log = (entry: Omit<StructuredLog, "timestamp" | "runId">): void => {
-    const structured: StructuredLog = { timestamp: `${options.runDate}T09:00:00.000Z`, runId: run.id, ...entry };
-    run.logs.push(structured);
-    if (entry.event === "provider.call" && entry.details.paid === true) run.paidCalls += 1;
-  };
-  const context: ProviderContext = { offline: options.offline, runId: run.id, now: run.startedAt, log };
-  const registry = await ProviderRegistry.create(config.providers, options.offline, root);
-  const selectedStages = options.stages ?? [...stageNames];
-
-  try {
-    for (const stage of selectedStages) {
-      if (stage === "discover") await discover(state, root, run, log);
-      if (stage === "resolve") await resolveSites(state, registry, config.business, context);
-      if (stage === "enrich") await enrich(state, registry, context);
-      if (stage === "verify") await verify(state, registry, config.business, context, options.runDate);
-      if (stage === "score") score(state, config.business, options.runDate, context);
-      run.stagesCompleted.push(stage);
-      await store.save(state);
+    if(stage==='score')for(const site of store.all('sites')){const rent=latest(store,site.id,'rent');store.put('sites',{id:site.id,current_rent:current(rent,now)?rent!.value.monthly:null,...assess(site,store.all('evidence') as Evidence[],b,now)});const s=store.all('sites').find(x=>x.id===site.id)!;const value=score(s,b);store.put('scores',{id:id(site.id,now.slice(0,10)),site_id:site.id,as_of:now,...value});store.put('sites',{id:site.id,score:value});}
+    if(stage==='report'){
+     const report=dashboardData(store,config,registry,now);await mkdir(directory,{recursive:true});await writeFile(path.join(directory,'dashboard.json'),JSON.stringify(report,null,2)+'\n');
+     await writeFile(path.join(directory,'digest.md'),`# DealerSource ${now.slice(0,10)}\n\n${report.mode} data. ${report.shortlist.length} viable sites; ${store.all('cases').filter(c=>c.status!=='resolved').length} unresolved cases.\n\n`+report.shortlist.map((s:Row)=>`- ${s.title}: USD ${s.current_rent}/month; score ${s.score.total}; ${s.shared?'SHARED':'standalone'}. All three gates pass with evidence.\n`).join(''));
     }
-    run.counts.sites = state.sites.length;
-    run.counts.viableSites = state.sites.filter((site) => site.viable).length;
-    run.counts.outboundMessages = run.logs.find((entry) => entry.event === "stage.verify")?.details.outboundMessages as number ?? 0;
-    run.completedAt = `${options.runDate}T09:05:00.000Z`;
-    const report = buildReport(state, config.business, config.providers, run);
-    if (selectedStages.includes("report")) {
-      for (const site of state.sites) if (site.stage === "scored") site.stage = "reported";
-      await mkdir(dirname(reportPath), { recursive: true });
-      await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-      log({ level: "info", event: "stage.report", details: { shortlist: report.shortlist.length, path: reportPath } });
-    }
-    await store.save(state);
-    return { state, report, run };
-  } catch (error) {
-    run.errors.push(error instanceof Error ? error.message : String(error));
-    run.completedAt = `${options.runDate}T09:05:00.000Z`;
-    await store.save(state);
-    throw error;
+    run.stages.push({stage,status:'complete'});log('stage_complete',{stage});
+   }catch(e){failed(stage,e);run.stages.push({stage,status:'failed'});}
+   store.put('runs',run);await store.save();
   }
+  if(model.requests.length)run.errors.push({stage:'model',message:'Scheduled agent responses pending; rerun after filling bounded responses'});
+  run.provider_calls=registry.transport.calls;run.complete=run.errors.length===0;run.finished_at=now;store.put('runs',run);await store.save();await model.writeRequests(directory);const sharedReport=createReport(store,config,registry,now,run);await writeFile(path.join(directory,'report.json'),JSON.stringify(sharedReport,null,2)+'\n');if(store instanceof SupabaseStore)await store.publish(sharedReport);
+  const report=dashboardData(store,config,registry,now);await mkdir(directory,{recursive:true});await writeFile(path.join(directory,'dashboard.json'),JSON.stringify(report,null,2)+'\n');log('run_complete',{...run.counts,viable:report.shortlist.length,errors:run.errors.length});return {...run,shortlist:report.shortlist,case_count:store.all('cases').length,model_requests:model.requests.length};
+ }finally{if(owned)await store.close();}
+}
+export function dashboardData(store:Store,config:AppConfig,registry:Registry,now:string):Row {
+ const sites=store.all('sites').map(s=>({...s,...assess(s,store.all('evidence') as Evidence[],config.business,now)}));
+ return {generated_at:now,mode:sites.every(s=>s.synthetic)?'FIXTURE':'LIVE OR MIXED: inspect evidence provenance',shortlist:rank(sites),sites,cases:store.all('cases').map(({body,...c})=>c),evidence:store.all('evidence'),sources:store.all('sources'),runs:store.all('runs').map(r=>({id:r.id,started_at:r.started_at,complete:r.complete,counts:r.counts,errors:r.errors})),controls:store.state.controls,providers:registry.status(),business:config.business,expired:store.all('evidence').filter(e=>!current(e as Evidence,now)).map(e=>({id:e.id,site_id:e.site_id,fact:e.fact,expires_at:e.expires_at}))};
 }
