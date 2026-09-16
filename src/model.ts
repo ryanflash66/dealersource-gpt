@@ -42,5 +42,6 @@ export function classifyAnswer(raw:Row,expected:Row):Row {
  if(!raw.value||raw.autoreply)return {accepted:false,reason:'No substantive structured answer'};
  if(expected.fact==='rent')return {accepted:raw.value.written===true&&raw.value.currency==='USD'&&Number.isFinite(raw.value.monthly),value:raw.value};
  if(expected.fact==='zoning')return {accepted:expected.contact_kind==='official'&&raw.value.official===true&&!!raw.value.section,value:raw.value};
+ if(expected.fact==='premises'){const v=raw.value;const valid=typeof v.office?.enclosed==='boolean'&&Number.isFinite(v.office?.sqft)&&typeof v.office?.separate_entrance==='boolean'&&Number.isInteger(v.display_count)&&['signage_available','records_storage','public_contact_hours','sublease_consent','available'].every(k=>typeof v[k]==='boolean');return {accepted:valid,value:valid?Object.fromEntries(['office','display_count','signage_available','records_storage','public_contact_hours','sublease_consent','available'].map(k=>[k,v[k]])):null};}
  return {accepted:false,reason:'Unsupported answer requires a bounded classifier result'};
 }

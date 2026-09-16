@@ -83,12 +83,13 @@ export async function runPipeline(options:Options={}):Promise<Row>{
     if(stage==='verify'){
      for(const site of store.all('sites')){
       const a=assess(site,store.all('evidence') as Evidence[],b,now);store.put('sites',{id:site.id,...a});
-      if(Object.values(a.gates).some((g:any)=>g.status==='FAIL')||a.blockers.some((x:string)=>/Drive-time|Enclosed office|capacity|Shared site excluded/.test(x)))continue;
-      const unknown=Object.entries(a.gates).filter(([,g]:any)=>g.status==='UNKNOWN').map(([f])=>f);
+      const knownPremisesFailure=site.office?.enclosed===false||(Number.isFinite(site.display_count)&&site.display_count<b.site.min_vehicle_display)||(site.drive?.inside_isochrone===false)||(Number.isFinite(site.drive?.minutes)&&site.drive.minutes>b.search.max_drive_minutes)||(site.shared&&b.site.shared_lot==='exclude');
+      if(Object.values(a.gates).some((g:any)=>g.status==='FAIL')||knownPremisesFailure)continue;
+      const unknown=Object.entries(a.gates).filter(([,g]:any)=>g.status==='UNKNOWN').map(([f])=>f);if(a.blockers.some((x:string)=>!/Drive-time/.test(x)))unknown.push('premises');
       for(const fact of unknown){const caseId=id(site.id,fact);if(store.all('cases').some(c=>c.id===caseId&&c.status!=='resolved'))continue;
-       const recipient=fact==='rent'?site.leasing_email:site.planning_email;const contact=store.all('contacts').find(c=>c.email===recipient);
+       const recipient=['rent','premises'].includes(fact)?site.leasing_email:site.planning_email;const contact=store.all('contacts').find(c=>c.email===recipient);
        const valid=contact&&allowedContact(recipient,contact.source_url,contact.kind,contact.synthetic);
-       store.put('cases',{id:caseId,site_id:site.id,listing_id:site.listing_id,fact,recipient:valid?recipient:null,contact_kind:contact?.kind??null,owner:fact==='rent'?'leasing_contact':'planning_authority',status:valid?'open':'escalated',created_at:now,next_action:valid?'send approved inquiry':'No verified published recipient; obtain official data',next_action_at:now,followups:0});
+       store.put('cases',{id:caseId,site_id:site.id,listing_id:site.listing_id,fact,recipient:valid?recipient:null,contact_kind:contact?.kind??null,owner:['rent','premises'].includes(fact)?'leasing_contact':'planning_authority',status:valid?'open':'escalated',created_at:now,next_action:valid?'send approved inquiry':'No verified published recipient; obtain official data',next_action_at:now,followups:0});
       }
      }
      const ingestReplies=async()=>{
@@ -101,7 +102,7 @@ export async function runPipeline(options:Options={}):Promise<Row>{
       if(answer.stop){const contact=store.all('contacts').find(x=>x.email===raw.from);if(contact)store.put('contacts',{id:contact.id,do_not_contact:true});store.put('cases',{id:c.id,status:'suppressed',next_action:'Contact requested stop'});continue;}
       if(answer.accepted){const site=store.all('sites').find(s=>s.id===c.site_id)!;const source=gmail.fixture?'fixture://gmail/'+raw.external_id:'https://mail.google.com/mail/u/0/#all/'+raw.external_id;
        const doc=rawDoc(store,{raw,data:answer.value,source_url:source,method:'email',synthetic:gmail.fixture},'gmail',now);
-       evidence(store,site,c.fact,answer.value,source,now,b.evidence[c.fact+'_days']??7,c.fact==='zoning'?'authority_email':'written_quote',gmail.fixture,c.contact_kind,doc);store.put('cases',{id:c.id,status:'resolved',next_action:'Reassess site'});
+       evidence(store,site,c.fact,answer.value,source,now,b.evidence[c.fact+'_days']??7,c.fact==='zoning'?'authority_email':'written_quote',gmail.fixture,c.contact_kind,doc);if(c.fact==='premises')store.put('sites',{id:site.id,...answer.value});store.put('cases',{id:c.id,status:'resolved',next_action:'Reassess site'});
       }
      }
      };
