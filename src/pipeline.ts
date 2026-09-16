@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadConfig, projectRoot } from "./config.ts";
 import { ProviderRegistry, type ProviderContext } from "./providers.ts";
-import { JsonStateStore } from "./store.ts";
+import { selectStateStore } from "./store.ts";
 import { evaluateGates, hasOperationalRequirements } from "./gates.ts";
 import { rankSites, scoreSite } from "./scoring.ts";
 import { renderApprovedMessage } from "./templates.ts";
@@ -84,7 +84,7 @@ function evidenceRecord(siteId: string, fact: string, value: unknown, raw: Recor
   };
 }
 
-function sourceIsSafe(source: PipelineState["sources"][number]): boolean {
+export function sourceIsSafe(source: PipelineState["sources"][number]): boolean {
   if (!source.enabled) return false;
   if (source.kind === "manual") return true;
   return source.robots_txt === "allowed" && source.terms_status === "allowed";
@@ -300,7 +300,7 @@ export async function runPipeline(options: PipelineOptions): Promise<{ state: Pi
   const statePath = options.statePath ?? resolve(root, ".data", "state.json");
   const reportPath = options.reportPath ?? resolve(root, ".data", "report.json");
   const config = await loadConfig(root);
-  const store = new JsonStateStore(statePath);
+  const store = selectStateStore(options.offline, statePath);
   const state = await store.load(config.sources);
   const runSequence = state.runs.filter((item) => item.runDate === options.runDate).length + 1;
   const run: RunRecord = {

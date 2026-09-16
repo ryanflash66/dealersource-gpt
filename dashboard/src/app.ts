@@ -34,10 +34,12 @@ async function loadReport() {
     for (const site of sites) {
       const score = scoreRows.find((row) => row.site_id === site.id);
       site.score = score?.payload && Object.keys(score.payload).length ? score.payload : score;
-      site.gates = ["zoning", "rent", "flood"].map((name) => {
-        const item = evidenceRows.find((row) => row.site_id === site.id && row.fact === name);
-        return item?.payload?.gate ?? { name, status: item?.verified ? "pass" : "unknown", evidenceId: item?.id ?? null };
-      });
+      if (!site.gates?.length) {
+        site.gates = ["zoning", "rent", "flood"].map((name) => {
+          const item = evidenceRows.find((row) => row.site_id === site.id && row.fact === name);
+          return item?.payload?.gate ?? { name, status: item?.verified ? "pass" : "unknown", evidenceId: item?.id ?? null };
+        });
+      }
     }
     const run = runRows[0] ?? {};
     return {
