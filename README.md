@@ -9,7 +9,7 @@ Owner: `ryanflash66`. Implementation agent: GPT. Parent mount: `agents/gpt-solut
 Prerequisite: Node.js 24 or newer with npm. No install step, Docker, API key, account, real address or `.env` is required.
 
 ```sh
-git clone https://github.com/ryanflash66/dealersource-gpt.git
+git clone --branch gpt/offline-complete-20260916 --single-branch https://github.com/ryanflash66/dealersource-gpt.git
 cd dealersource-gpt
 npm test
 npm run pipeline -- --offline --day 2026-09-16
