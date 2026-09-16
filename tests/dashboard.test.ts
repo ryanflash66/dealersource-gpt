@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import { readFile,mkdtemp,mkdir,rm } from 'node:fs/promises';
+import path from 'node:path';
+import { ROOT } from '../src/config.ts';
+import { build } from '../scripts/build.ts';
+await mkdir(path.join(ROOT,'.verify'),{recursive:true});const dir=await mkdtemp(path.join(ROOT,'.verify','ui-'));
+test.after(()=>rm(dir,{recursive:true,force:true}));
+let context:any,elements:Record<string,any>,listeners:Record<string,any>;
+test('dashboard JavaScript renders fixture shortlist without a browser network dependency',async()=>{
+ const out=await build(dir,{});const report=JSON.parse(await readFile(path.join(out,'report.json'),'utf8'));const app=await readFile(path.join(out,'app.js'),'utf8');elements={};listeners={};
+ const node=(name:string)=>elements[name]??(elements[name]={innerHTML:'',textContent:'',hidden:false,dataset:{},classList:{toggle(){}},setAttribute(){},removeAttribute(){},addEventListener(event:string,fn:any){this[event]=fn;},showModal(){this.open=true;},close(){this.open=false;},insertAdjacentHTML(_position:string,html:string){this.innerHTML+=html;}});
+ const nav=['shortlist','pipeline','exceptions','config'].map(view=>({...node('nav-'+view),dataset:{view}}));
+ context=vm.createContext({console,URL,URLSearchParams,Intl,Date,Set,Map,Math,Number,String,JSON,Object,Array,Promise,location:{hash:'#shortlist',pathname:'/'},history:{replaceState(){}},matchMedia:()=>({matches:false}),getComputedStyle:()=>({getPropertyValue:()=> '#10A37F'}),document:{documentElement:{dataset:{}},querySelector:node,querySelectorAll:(selector:string)=>selector==='nav a'?nav:[]},window:{addEventListener:(event:string,fn:any)=>listeners[event]=fn},fetch:async(url:string)=>({ok:true,json:async()=>url==='/runtime-config.json'?{}:report})});
+ await vm.runInContext(app,context,{timeout:1000});assert.match(elements['#content'].innerHTML,/Verified shortlist/);assert.match(elements['#content'].innerHTML,/SHARED LOT/);assert.match(elements['#notice'].innerHTML,/FIXTURE MODE/);
+});
+for(const [view,title] of [['pipeline','Open cases'],['exceptions','Excluded sources'],['config','Read-only']])test(`dashboard ${view} view renders required content`,()=>{context.location.hash='#'+view;listeners.hashchange();assert.ok(elements['#content'].innerHTML.includes(title));});
+test('theme toggle does not rely on localStorage',()=>{elements['#theme'].click();assert.equal(context.document.documentElement.dataset.theme,'dark');elements['#theme'].click();assert.equal(context.document.documentElement.dataset.theme,'light');});
+test('evidence dialog renders source timestamps and values safely',()=>{vm.runInContext('showEvidence(data.report.sites[0].site_id)',context);assert.match(elements['#evidence-content'].innerHTML,/Fetched/);assert.match(elements['#evidence-content'].innerHTML,/Expires/);assert.equal(elements['#evidence-dialog'].open,true);});
+test('markup escaper neutralizes untrusted HTML',()=>{assert.equal(vm.runInContext('esc("<img src=x onerror=alert(1)>")',context),'&lt;img src=x onerror=alert(1)&gt;');});

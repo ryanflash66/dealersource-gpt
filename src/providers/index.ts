@@ -73,7 +73,7 @@ export class HTTPProvider implements Provider {
   } else if(this.layer==='social'){
    const u=new URL(url.replace(/\/$/,'')+'/search');u.searchParams.set('q',`subreddit:${input.subreddit} (lease OR vacant OR closing)`);u.searchParams.set('sort','new');u.searchParams.set('limit','50');url=u.toString();h['User-Agent']='DealerSource/1.0';
   } else if(this.layer==='competitors'&&this.id==='overpass'){
-   const query=`[out:json][timeout:20];nwr(around:${Number(input.radius_m)},${Number(input.lat)},${Number(input.lon)})[shop=car];out center;`;
+   const around=`(around:${Number(input.radius_m)},${Number(input.lat)},${Number(input.lon)})`;const query=`[out:json][timeout:20];(nwr${around}[shop=car];nwr${around}[office=estate_agent];nwr${around}[office=property_management];);out center;`;
    options={method:'POST',body:new URLSearchParams({data:query}).toString()};h['Content-Type']='application/x-www-form-urlencoded';
   } else if(this.layer==='competitors'&&this.id==='google'){
    h['X-Goog-Api-Key']=this.key;h['X-Goog-FieldMask']='places.id,places.displayName,places.location';delete h.Authorization;h['Content-Type']='application/json';options={method:'POST',body:JSON.stringify({includedTypes:['car_dealer'],maxResultCount:20,locationRestriction:{circle:{center:{latitude:input.lat,longitude:input.lon},radius:input.radius_m}}})};
@@ -107,7 +107,7 @@ export function normalizeResponse(layer:Layer,provider:string,raw:Row,input:Row,
   if(provider==='ors'){const ring=raw.features?.[0]?.geometry?.coordinates?.[0];return {minutes:null,inside_isochrone:ring?pointInRing([input.lon,input.lat],ring):null,method:'isochrone'};}
   return Number.isFinite(minutes)?{minutes,inside_isochrone:minutes<=input.max_drive_minutes,method:'routing-threshold'}:null;
  }
- if(layer==='competitors')return {count:provider==='overpass'?(raw.elements??[]).length:(raw.places??[]).length,radius_m:input.radius_m,brokers:[]};
+ if(layer==='competitors'){const elements=raw.elements??[];return {count:provider==='overpass'?elements.filter((e:Row)=>e.tags?.shop==='car').length:(raw.places??[]).length,radius_m:input.radius_m,brokers:provider==='overpass'?elements.filter((e:Row)=>['estate_agent','property_management'].includes(e.tags?.office)).map((e:Row)=>({name:e.tags?.name??'Broker',url:e.tags?.website??e.tags?.['contact:website']??null})).filter((e:Row)=>e.url):[]};}
  if(layer==='crawling')return {html:raw.data?.html??raw.html??raw.data?.markdown??raw.markdown??'',listings:raw.listings};
  if(layer==='social')return {signals:(raw.data?.children??[]).map((x:Row)=>({id:x.data.id,title:x.data.title,url:'https://www.reddit.com'+x.data.permalink,body:x.data.selftext})),listings:[]};
  const features=raw.features??[];if(raw.exceededTransferLimit)throw new Error('Provider result truncated');const feature=features[0];const a=feature?.attributes??{};

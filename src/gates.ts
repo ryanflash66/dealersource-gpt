@@ -25,7 +25,7 @@ export function gate(fact:string,e:Evidence|undefined,b:Row,now:string):Gate {
 }
 export function assess(site:Row,evidence:Evidence[],b:Row,now:string):Row {
  const latest=(fact:string)=>evidence.filter(e=>e.site_id===site.id&&e.fact===fact).sort((a,c)=>Date.parse(c.fetched_at)-Date.parse(a.fetched_at))[0];
- const gates=Object.fromEntries(['zoning','rent','flood'].map(f=>[f,gate(f,latest(f),b,now)]));
+ const gates=Object.fromEntries(['zoning','rent','flood'].map(f=>{const recent=latest(f);let g=gate(f,recent,b,now);if(recent){const contemporaneous=evidence.filter(e=>e.site_id===site.id&&e.fact===f&&e.fetched_at===recent.fetched_at&&current(e,now));const values=new Set(contemporaneous.map(e=>JSON.stringify(f==='rent'?[e.value?.monthly,e.value?.currency,e.value?.written]:f==='zoning'?[e.value?.status,e.value?.conditional_verified]:[e.value?.centroid_zone,e.value?.high_risk_fraction])));if(values.size>1)g=result('UNKNOWN','Conflicting current gating evidence; clarification required',recent);}return [f,g];}));
  const blockers:string[]=[];if(site.available!==true)blockers.push('Availability unknown or unavailable');
  if(b.site.office_required&&site.office?.enclosed!==true)blockers.push('Enclosed office required');
  if(b.site.office_required&&(!(site.office?.sqft>=b.dealer.minimum_office_sqft)||site.office?.separate_entrance!==true))blockers.push('Established office size/entrance check not met');

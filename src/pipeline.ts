@@ -96,6 +96,7 @@ export async function runPipeline(options:Options={}):Promise<Row>{
      for(const raw of [...pending,...await gmail.replies(store)]){
       const mid=id('inbound',raw.external_id);const existing=store.all('messages').find(m=>m.id===mid);if(existing&&existing.status!=='pending_model')continue;
       const c=store.all('cases').find(c=>raw.case_id?c.id===raw.case_id:c.listing_id===raw.site_listing_id&&c.fact===raw.fact);if(!c)continue;
+      if(raw.bounce&&raw.outbound_id){const sent=store.all('messages').find(m=>m.id===raw.outbound_id&&m.case_id===c.id);if(sent){store.put('messages',{id:sent.id,status:'bounced'});store.put('messages',{id:mid,case_id:c.id,site_id:c.site_id,direction:'inbound',status:'bounce',provider_id:raw.external_id,created_at:now,synthetic:gmail.fixture});store.put('cases',{id:c.id,status:'escalated',next_action:'Delivery failed; review published contact'});mailPaused(store,b.mail,now);run.counts.inbound++;}continue;}
       const answer=await model.classify(raw,c);store.put('messages',{id:mid,site_id:c.site_id,case_id:c.id,direction:'inbound',created_at:existing?.created_at??now,provider_id:raw.external_id,body:raw.body,payload:raw,status:answer.pending?'pending_model':'received',synthetic:gmail.fixture});if(!existing)run.counts.inbound++;
       if(answer.stop){const contact=store.all('contacts').find(x=>x.email===raw.from);if(contact)store.put('contacts',{id:contact.id,do_not_contact:true});store.put('cases',{id:c.id,status:'suppressed',next_action:'Contact requested stop'});continue;}
       if(answer.accepted){const site=store.all('sites').find(s=>s.id===c.site_id)!;const source=gmail.fixture?'fixture://gmail/'+raw.external_id:'https://mail.google.com/mail/u/0/#all/'+raw.external_id;
@@ -129,7 +130,7 @@ export async function runPipeline(options:Options={}):Promise<Row>{
      await writeFile(path.join(directory,'digest.md'),`# DealerSource ${now.slice(0,10)}\n\n${report.mode} data. ${report.shortlist.length} viable sites; ${store.all('cases').filter(c=>c.status!=='resolved').length} unresolved cases.\n\n`+report.shortlist.map((s:Row)=>`- ${s.title}: USD ${s.current_rent}/month; score ${s.score.total}; ${s.shared?'SHARED':'standalone'}. All three gates pass with evidence.\n`).join(''));
     }
     run.stages.push({stage,status:'complete'});log('stage_complete',{stage});
-   }catch(e){failed(stage,e);run.stages.push({stage,status:'failed'});}
+   }catch(e:any){if(stage==='verify'&&(e.status===429||e.status===403)){store.state.controls.sending_paused=true;store.state.controls.pause_reason='Gmail quota or authorization error';}failed(stage,e);run.stages.push({stage,status:'failed'});}
    store.put('runs',run);await store.save();
   }
   if(model.requests.length)run.errors.push({stage:'model',message:'Scheduled agent responses pending; rerun after filling bounded responses'});
