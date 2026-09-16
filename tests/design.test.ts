@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { ROOT } from '../src/config.ts';
+const digest=s=>createHash('sha256').update(s).digest('hex');
+test('published shared CSS is exact and tokens differ only at assigned accent',async()=>{const m=JSON.parse(await readFile(path.join(ROOT,'docs/dashboard-template.json'),'utf8'));const css=await readFile(path.join(ROOT,'dashboard/dashboard.css'));const tokens=await readFile(path.join(ROOT,'dashboard/tokens.css'),'utf8');assert.equal(digest(css),m.dashboard_css_sha256);assert.equal(digest(tokens),m.local_tokens_sha256);assert.equal(digest(tokens.replace('--accent: #10A37F;','--accent: #0A6CF5;')),m.upstream_tokens_sha256);assert.equal(m.accent,'#10A37F');});
+test('shared shell loads mandatory styles before integration extensions',async()=>{const html=await readFile(path.join(ROOT,'dashboard/index.html'),'utf8');assert.ok(html.indexOf('/tokens.css')<html.indexOf('/dashboard.css'));assert.ok(html.indexOf('/dashboard.css')<html.indexOf('/styles.css'));for(const name of ['ds-root','topbar','run-status','theme-toggle','footer'])assert.ok(html.includes(name));});
+test('integration stylesheet does not redefine semantic or derived color tokens',async()=>{const css=await readFile(path.join(ROOT,'dashboard/styles.css'),'utf8');assert.ok(!/--(?:pass|fail|pending|stale|paused|warn|info|accent|factor)[\w-]*\s*:/.test(css));});

@@ -1,0 +1,8 @@
+{
+  "parent_commit": "8ed035502569f9a921aa9b1175a92cc106ee493a",
+  "accent": "#10A37F",
+  "upstream_tokens_sha256": "78bdf9d36345e29f0418d2c4ff70e88a3e65ad10aff458591cc5f4608b2597e2",
+  "local_tokens_sha256": "626c74f464ca02d038f5026e5ad048e1d76482ec469ebc478671cb28178d79c0",
+  "dashboard_css_sha256": "2ebc3df4bd5940f771ad3bffdc9be77a55a1dfc24e906d5e3e391f987900784d",
+  "allowed_change": "Only --accent in tokens.css; dashboard.css copied byte-for-byte"
+}

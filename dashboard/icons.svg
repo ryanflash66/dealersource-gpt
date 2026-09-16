@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <!-- dealersource icon sprite. 24px grid, stroke 1.75, currentColor.
+       Inline this whole file at the top of <body>, then use
+       <svg class="i"><use href="#i-check"/></svg>

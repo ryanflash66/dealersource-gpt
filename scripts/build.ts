@@ -5,7 +5,8 @@ import { ROOT } from '../src/config.ts';
 import { runPipeline } from '../src/pipeline.ts';
 export async function build(output=path.join(ROOT,'dist'),env:NodeJS.ProcessEnv=process.env):Promise<string>{
  await mkdir(output,{recursive:true});
- for(const file of ['index.html','tokens.css','styles.css'])await copyFile(path.join(ROOT,'dashboard',file),path.join(output,file));
+ for(const file of ['index.html','tokens.css','dashboard.css','styles.css'])await copyFile(path.join(ROOT,'dashboard',file),path.join(output,file));
+ const html=await readFile(path.join(output,'index.html'),'utf8');await writeFile(path.join(output,'index.html'),html.replace('<!-- ICONS -->',await readFile(path.join(ROOT,'dashboard','icons.svg'),'utf8')));
  await copyFile(path.join(ROOT,'dashboard','app.ts'),path.join(output,'app.js'));
  const runtime={supabase_url:env.PUBLIC_SUPABASE_URL??null,supabase_anon_key:env.PUBLIC_SUPABASE_ANON_KEY??null,maplibre_script_url:env.MAPLIBRE_SCRIPT_URL??null,pmtiles_script_url:env.PMTILES_SCRIPT_URL??null,map_style_url:env.MAP_STYLE_URL??null};
  if(runtime.supabase_url&&!runtime.supabase_anon_key)throw new Error('Public Supabase URL requires its public anon key');

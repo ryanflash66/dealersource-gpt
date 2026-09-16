@@ -73,7 +73,7 @@ See [docs/scheduling.md](docs/scheduling.md) for the cloud scheduled-agent task 
 
 ## Shared design
 
-GPT accent: **`#10A37F`**. The shared design README was still **not yet published** at the checked milestones, so this is a provisional functional implementation of its four views and `report.json` contract. When the published tokens/components/layout files exist, they must replace the provisional styling; semantic colors must remain those of the shared template. See [docs/decisions.md](docs/decisions.md).
+GPT accent: **`#10A37F`**. The published shared template at parent commit `8ed035502569f9a921aa9b1175a92cc106ee493a` is implemented. `dashboard.css` is copied byte-for-byte; `tokens.css` differs only in the assigned accent. All semantic and derived colors are unchanged. The four dynamic views use the shared markup classes and `report.json` contract. Offline mode uses the system-font fallback and static map preview. Template provenance and hash tests are in `docs/dashboard-template.json` and `tests/design.test.ts`; integration-only layout adjustments are recorded in [docs/decisions.md](docs/decisions.md).
 
 ## Layout
 
