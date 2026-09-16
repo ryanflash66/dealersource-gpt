@@ -10,3 +10,6 @@ The task spec is authoritative. These choices fill gaps without changing its gat
 6. **Dashboard map:** Offline mode uses a coordinate plot with no network requests. Deployment can enable MapLibre with a self-hosted style and PMTiles URL; public OSM services are never defaults.
 7. **Visibility score:** Frontage contributes 50%, corner-lot status 25%, and verified signage line-of-sight 25% before the configured ranking weight is applied.
 8. **Normalized ranking:** Traffic is capped at 30,000 AADT, distance at the configured drive-time limit, rent within the configured range, and competitor density at 10 nearby dealers.
+9. **Dashboard access:** Site, evidence, score, source, and run data may be read through the anonymous Supabase key under RLS. Case status is exposed through column grants that exclude contact addresses and message bodies.
+10. **Production cutover:** Fixture fallback stays on for credential-free builds. Deployment documentation requires turning it off before production so incomplete live configuration fails visibly.
+11. **Fixture clock:** Recorded evidence and the documented acceptance run use 2026-09-16 so expiry and replay behavior remain deterministic.
