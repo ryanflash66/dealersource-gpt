@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Verified dealership site sourcing dashboard for Eastern North Carolina." />
+    <meta name="theme-color" content="#0b1721" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>DealerSource | Verified site shortlist</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="topbar">
+      <a class="brand" href="#shortlist" aria-label="DealerSource shortlist">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Dealer<span>Source</span></span>
+      </a>
+      <div class="run-state" id="run-state" aria-live="polite">
+        <span class="pulse-dot"></span>
+        Loading latest run
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="sidebar" aria-label="Dashboard views">
+        <p class="nav-label">Workspace</p>
+        <button class="nav-item is-active" data-view="shortlist" aria-current="page">
+          <span aria-hidden="true">◆</span> Shortlist <b id="shortlist-count">0</b>
+        </button>
+        <button class="nav-item" data-view="pipeline"><span aria-hidden="true">▤</span> Pipeline</button>
+        <button class="nav-item" data-view="exceptions"><span aria-hidden="true">△</span> Exceptions <b id="exception-count">0</b></button>
+        <button class="nav-item" data-view="config"><span aria-hidden="true">⚙</span> Config</button>
+        <div class="sidebar-note">
+          <span>Search center</span>
+          <strong id="home-base">Greenville, NC</strong>
+          <small id="search-window">60 minute drive time</small>
+        </div>
+      </nav>
+
+      <main id="main-content" tabindex="-1">
+        <section class="view is-active" id="view-shortlist" aria-labelledby="shortlist-heading">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">Decision queue</p>
+              <h1 id="shortlist-heading">Verified shortlist</h1>
+              <p>Only sites with current zoning, rent, and flood evidence appear here.</p>
+            </div>
+            <div class="as-of"><span>Evidence as of</span><strong id="generated-at">Loading</strong></div>
+          </div>
+          <div class="metric-row" id="metrics" aria-label="Shortlist summary"></div>
+          <div class="shortlist-layout">
+            <div class="site-list" id="shortlist"></div>
+            <aside class="map-panel" aria-labelledby="map-heading">
+              <div class="panel-heading">
+                <div><p class="eyebrow">Coverage</p><h2 id="map-heading">Candidate map</h2></div>
+                <span class="map-mode" id="map-mode">Offline plot</span>
+              </div>
+              <div id="map" class="map" role="img" aria-label="Map showing viable candidate sites near Greenville, North Carolina"></div>
+              <div class="map-legend"><span><i class="standalone"></i> Standalone</span><span><i class="shared"></i> Shared lot</span></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view" id="view-pipeline" aria-labelledby="pipeline-heading" hidden>
+          <div class="page-heading"><div><p class="eyebrow">Lead operations</p><h1 id="pipeline-heading">Pipeline</h1><p>Every unresolved fact has an owner and a next action.</p></div></div>
+          <div class="stage-strip" id="stage-strip"></div>
+          <div class="panel table-panel">
+            <div class="panel-heading"><div><p class="eyebrow">All candidates</p><h2>Site progress</h2></div></div>
+            <div class="table-scroll"><table><thead><tr><th>Site</th><th>Stage</th><th>Rent</th><th>Gate status</th><th>Lot</th></tr></thead><tbody id="pipeline-table"></tbody></table></div>
+          </div>
+          <div class="panel cases-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Verification</p><h2>Open cases</h2></div></div>
+            <div id="cases"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-exceptions" aria-labelledby="exceptions-heading" hidden>
+          <div class="page-heading"><div><p class="eyebrow">Needs review</p><h1 id="exceptions-heading">Exceptions</h1><p>Policy exclusions, sending pauses, source failures, and expired evidence.</p></div></div>
+          <div class="exception-list" id="exceptions"></div>
+        </section>
+
+        <section class="view" id="view-config" aria-labelledby="config-heading" hidden>
+          <div class="page-heading"><div><p class="eyebrow">Read only</p><h1 id="config-heading">Configuration</h1><p>Active business rules and provider selections for this report.</p></div></div>
+          <div class="config-grid" id="config-grid"></div>
+        </section>
+      </main>
+    </div>
+    <script src="/runtime-config.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
