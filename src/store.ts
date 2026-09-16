@@ -38,6 +38,7 @@ export class SupabaseStore extends MemoryStore {
  async save(){const revision=this.state.revision;const next=structuredClone(this.state);next.revision++;
   await this.request(this.url+'/rest/v1/rpc/save_pipeline',{method:'POST',headers:{apikey:this.key,Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify({lease_token:this.lease,expected_revision:revision,new_state:next})});this.state=next;
  }
+ async flood(parcel:Row,features:Row[],highZones:string[]):Promise<Row>{const zones=features.map(f=>({zone:String(f.attributes?.FLD_ZONE??'').toUpperCase()==='X'&&String(f.attributes?.ZONE_SUBTY??'').includes('0.2')?'X_SHADED':String(f.attributes?.FLD_ZONE??'').toUpperCase(),geometry:{type:'Polygon',coordinates:f.geometry?.rings}}));return this.request(this.url+'/rest/v1/rpc/flood_metrics',{method:'POST',headers:{apikey:this.key,Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify({parcel_geojson:parcel.geometry,zones,high_zones:highZones})});}
  async publish(report:Row){await this.request(this.url+'/rest/v1/rpc/publish_dashboard',{method:'POST',headers:{apikey:this.key,Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify({new_report:report})});}
  async close(){await this.request(this.url+'/rest/v1/rpc/release_pipeline',{method:'POST',headers:{apikey:this.key,Authorization:'Bearer '+this.key,'Content-Type':'application/json'},body:JSON.stringify({lease_token:this.lease})});}
 }

@@ -69,7 +69,7 @@ export async function runPipeline(options:Options={}):Promise<Row>{
      for(const site of store.all('sites')){if(!site.geo)continue;const parcel=store.all('parcels').find(p=>p.id===site.parcel_id);
       for(const layer of ['zoning','flood','traffic','drive_time','imagery','competitors'] as const)try{
        const result=await registry.get(layer).execute({...site,...site.geo,parcel,home_base:b.search.home_base,home_lat:home.lat,home_lon:home.lon,max_drive_minutes:b.search.max_drive_minutes,radius_m:b.search.competitor_radius_m,now});const doc=rawDoc(store,result,'provider-'+layer,now);
-       let value=result.data;if(layer==='flood'&&value?.features&&parcel)value=measureFlood(parcel,value.features,b.flood.high_risk_zones);
+       let value=result.data;if(layer==='flood'&&value?.features&&parcel){const features=value.features;value=store instanceof SupabaseStore?await store.flood(parcel,features,b.flood.high_risk_zones):measureFlood(parcel,features,b.flood.high_risk_zones);}
        if(!value)throw new Error(`No ${layer} evidence`);
        if(layer==='zoning'){
         const contact=value.planning_email;if(contact&&value.planning_contact_source){const old=store.all('contacts').find(c=>c.id===id(contact.toLowerCase()));store.put('contacts',{id:id(contact.toLowerCase()),email:contact.toLowerCase(),kind:'official',source_url:value.planning_contact_source,synthetic:result.synthetic,do_not_contact:old?.do_not_contact??false});site.planning_email=contact;}
@@ -108,6 +108,7 @@ export async function runPipeline(options:Options={}):Promise<Row>{
      for(const c of store.all('cases')){
       if(!['open','awaiting_reply'].includes(c.status)||Date.parse(c.next_action_at)>Date.parse(now))continue;
       const site=store.all('sites').find(s=>s.id===c.site_id)!;const contact=store.all('contacts').find(x=>x.email===c.recipient);
+      if(site.synthetic&&!gmail.fixture){store.put('cases',{id:c.id,status:'escalated',next_action:'Fixture site cannot generate live outreach'});continue;}
       if(!contact||contact.do_not_contact){store.put('cases',{id:c.id,status:'suppressed',next_action:'Do not contact'});continue;}
       if(mailPaused(store,b.mail,now))break;
       if(c.status==='awaiting_reply'&&c.followups>=b.mail.max_followups){store.put('cases',{id:c.id,status:'escalated',next_action:'No response after configured follow-ups'});continue;}

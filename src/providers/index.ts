@@ -23,7 +23,7 @@ export const CATALOG:Record<Layer,Record<string,{env:string;paid?:boolean;creden
 async function fixtureResult(layer:Layer,provider:string,input:Row):Promise<ProviderResult>{
  const fixtures=JSON.parse(await readFile(path.join(ROOT,'fixtures','sites.json'),'utf8'));
  const s=fixtures.find((r:Row)=>r.external_id===input.external_id)||input.fixture;
- const now=input.now??new Date().toISOString();let data:any=null;
+ const now=(input.now??new Date().toISOString()).slice(0,10)+'T00:00:00.000Z';let data:any=null;
  if(layer==='crawling')data=JSON.parse(await readFile(path.join(ROOT,'fixtures','raw-listings.json'),'utf8'));
  else if(layer==='llm')data=input.raw?.listings??(input.raw?.value?input.raw:null);
  else if(layer==='social')data={listings:[],signals:[],note:'No personal contacts inferred from social posts'};
@@ -111,13 +111,14 @@ export function normalizeResponse(layer:Layer,provider:string,raw:Row,input:Row,
  if(layer==='crawling')return {html:raw.data?.html??raw.html??raw.data?.markdown??raw.markdown??'',listings:raw.listings};
  if(layer==='social')return {signals:(raw.data?.children??[]).map((x:Row)=>({id:x.data.id,title:x.data.title,url:'https://www.reddit.com'+x.data.permalink,body:x.data.selftext})),listings:[]};
  const features=raw.features??[];if(raw.exceededTransferLimit)throw new Error('Provider result truncated');const feature=features[0];const a=feature?.attributes??{};
- if(layer==='parcels'){const key=env.PARCEL_ID_FIELD??'PARNO';const rings=feature?.geometry?.rings;if(!a[key]||!rings)return null;return {id:String(a[key]),geometry:{type:'Polygon',coordinates:rings},centroid:[input.lon,input.lat],acreage:a[env.PARCEL_ACRES_FIELD??'GISACRES']??null};}
+ if(layer==='parcels'){const key=env.PARCEL_ID_FIELD??'PARNO';const rings=feature?.geometry?.rings;if(!a[key]||!rings)return null;return {id:String(a[key]),geometry:{type:'Polygon',coordinates:rings},centroid:polygonCentroid(rings),acreage:a[env.PARCEL_ACRES_FIELD??'GISACRES']??null};}
  if(layer==='zoning')return {status:'unknown',official:true,district:a[env.ZONING_DISTRICT_FIELD??'ZONE']??null,section:null,layer_url:env.ZONING_URL,use_table_url:env.ZONING_USE_TABLE_URL??null,planning_email:env.PLANNING_EMAIL??null,planning_contact_source:env.PLANNING_CONTACT_SOURCE??null};
  if(layer==='traffic')return a[env.AADT_FIELD??'AADT']?{aadt:Number(a[env.AADT_FIELD??'AADT']),fronting_road_id:a[env.ROAD_ID_FIELD??'ROAD_ID'],year:a.YEAR}:null;
  if(layer==='flood')return {features,coverage_complete:raw.coverage_complete===true,geometry_checked:false};
  if(layer==='imagery')return {image_url:raw.data?.[0]?.thumb_1024_url??null,captured_at:raw.data?.[0]?.captured_at??null,frontage_m:null,corner:null,line_of_sight:null};
  return raw;
 }
+export function polygonCentroid(rings:number[][][]):number[]{let area=0,x=0,y=0;for(const ring of rings)for(let i=0;i<ring.length-1;i++){const p=ring[i],q=ring[i+1],cross=p[0]*q[1]-q[0]*p[1];area+=cross;x+=(p[0]+q[0])*cross;y+=(p[1]+q[1])*cross;}if(Math.abs(area)<1e-12)throw new Error('Invalid parcel geometry');return [x/(3*area),y/(3*area)];}
 export function pointInRing(point:number[],ring:number[][]):boolean {let inside=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const [xi,yi]=ring[i],[xj,yj]=ring[j];if((yi>point[1])!==(yj>point[1])&&point[0]<(xj-xi)*(point[1]-yi)/(yj-yi)+xi)inside=!inside;}return inside;}
 
 export class Registry {
