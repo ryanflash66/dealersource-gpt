@@ -1,0 +1,15 @@
+[
+  {
+    "external_id": "fixture-reply-rent-6",
+    "site_listing_id": "listing-6",
+    "fact": "rent",
+    "from": "leasing-6@example.invalid",
+    "body": "The exact office and display allocation is available for base rent USD 850 per month. This is a synthetic written quote.",
+    "value": {
+      "monthly": 850,
+      "written": true,
+      "currency": "USD"
+    },
+    "stop": false
+  }
+]

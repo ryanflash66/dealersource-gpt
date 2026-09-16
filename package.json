@@ -3,15 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=22.6"
-  },
+  "engines": {"node": ">=24.0.0"},
   "scripts": {
-    "test": "node --experimental-strip-types --test --test-concurrency=1 test/**/*.test.ts",
-    "pipeline": "node --experimental-strip-types src/cli.ts",
-    "dashboard:build": "node --experimental-strip-types scripts/build-dashboard.ts",
-    "dashboard:dev": "node --experimental-strip-types dashboard/server.ts",
-    "deploy:vercel": "pnpm dashboard:build && vercel --prod",
-    "verify": "pnpm test && pnpm pipeline --offline --date 2026-09-16 && pnpm dashboard:build"
-  }
+    "test": "node scripts/test.ts",
+    "pipeline": "node src/cli.ts",
+    "dashboard:dev": "node scripts/dashboard.ts",
+    "dashboard:build": "node scripts/build.ts",
+    "deploy": "npx vercel --prod",
+    "db:test": "node scripts/db-test.ts",
+    "acceptance": "node scripts/acceptance.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {}
 }

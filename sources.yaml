@@ -1,133 +1,15 @@
-sources:
-  - id: pitt-county-sites-buildings
-    name: Pitt County Sites and Buildings
-    kind: crawl
-    source_class: economic-development
-    url: https://www.pittcountync.gov/1172/Sites-Buildings
-    robots_txt: unknown
-    terms_status: unclear
-    enabled: false
-    cadence: weekly
-    checked_at: 2026-09-16
-    status_note: Public government inventory; enable only after robots and reuse review.
-  - id: carolinas-gateway-properties
-    name: Carolinas Gateway Partnership Sites and Buildings
-    kind: crawl
-    source_class: economic-development
-    url: https://econdev.org/sites-and-building-search/
-    robots_txt: unknown
-    terms_status: unclear
-    enabled: false
-    cadence: weekly
-    checked_at: 2026-09-16
-    status_note: Public economic-development search; permission not assumed.
-  - id: russell-property-management
-    name: Russell Property Management Commercial Listings
-    kind: crawl
-    source_class: local-broker
-    url: https://russellpm.com/renting-overview/rental-listings/
-    robots_txt: unknown
-    terms_status: unclear
-    enabled: false
-    cadence: daily
-    checked_at: 2026-09-16
-    status_note: Local listing page discovered through public search; explicit review required.
-  - id: connelly-properties
-    name: Connelly Properties
-    kind: crawl
-    source_class: local-property-manager
-    url: https://connellync.com/
-    robots_txt: unknown
-    terms_status: unclear
-    enabled: false
-    cadence: daily
-    checked_at: 2026-09-16
-    status_note: Local property manager; inventory may be residential and terms are not explicit.
-  - id: greenville-pitt-chamber-directory
-    name: Greenville-Pitt County Chamber Directory
-    kind: crawl
-    source_class: chamber
-    url: https://business.greenvillenc.org/list
-    robots_txt: unknown
-    terms_status: unclear
-    enabled: false
-    cadence: monthly
-    checked_at: 2026-09-16
-    status_note: Use for broker discovery only after terms review, not as a property feed.
-  - id: reddit-eastern-nc
-    name: Reddit Eastern North Carolina Signals
-    kind: reddit
-    source_class: social
-    url: https://www.reddit.com/dev/api/
-    robots_txt: allowed
-    terms_status: allowed
-    enabled: true
-    cadence: daily
-    checked_at: 2026-09-16
-    status_note: Official OAuth API only; configured subreddits are GreenvilleNCarolina, easternnc, CommercialRealEstate.
-  - id: public-rss-fixture
-    name: Approved Public Listing RSS
-    kind: rss
-    source_class: public-feed
-    url: https://fixtures.local/listings.xml
-    robots_txt: allowed
-    terms_status: allowed
-    enabled: true
-    cadence: daily
-    checked_at: 2026-09-16
-    status_note: Synthetic offline fixture; replace with a reviewed feed at deploy time.
-  - id: manual-intake
-    name: Manual Lead Intake
-    kind: manual
-    source_class: manual
-    url: https://fixtures.local/manual
-    robots_txt: allowed
-    terms_status: allowed
-    enabled: true
-    cadence: daily
-    checked_at: 2026-09-16
-    status_note: Operator-supplied records; no crawler access.
-  - id: loopnet
-    name: LoopNet
-    kind: crawl
-    source_class: excluded-marketplace
-    url: https://www.loopnet.com/solutions/LoopNetTerms-of-Use
-    robots_txt: unknown
-    terms_status: prohibited
-    enabled: false
-    cadence: never
-    checked_at: 2026-09-16
-    status_note: Terms restrict scraping, data mining, and automated copying.
-  - id: crexi
-    name: Crexi
-    kind: crawl
-    source_class: excluded-marketplace
-    url: https://www.crexi.com/lease/tos
-    robots_txt: unknown
-    terms_status: prohibited
-    enabled: false
-    cadence: never
-    checked_at: 2026-09-16
-    status_note: Terms prohibit automated and non-automated scraping.
-  - id: craigslist
-    name: Craigslist
-    kind: crawl
-    source_class: excluded-marketplace
-    url: https://www.craigslist.org/about/terms
-    robots_txt: disallowed
-    terms_status: prohibited
-    enabled: false
-    cadence: never
-    checked_at: 2026-09-16
-    status_note: Terms prohibit software access and automated or manual collection.
-  - id: facebook-marketplace
-    name: Facebook Marketplace
-    kind: crawl
-    source_class: excluded-marketplace
-    url: https://www.facebook.com/legal/terms
-    robots_txt: disallowed
-    terms_status: prohibited
-    enabled: false
-    cadence: never
-    checked_at: 2026-09-16
-    status_note: Platform terms prohibit unauthorized automated data collection.
+{
+  "subreddits": ["NorthCarolina", "CommercialRealEstate"],
+  "sources": [
+    {"id":"fixture-listings","kind":"manual","url":"fixture://listings","robots_txt":"allowed","terms_status":"allowed","enabled":true,"cadence":"daily","reviewed_at":"2026-09-16","review_note":"Original synthetic fixtures authored for this solution, not actual listings."},
+    {"id":"pitt-sites","kind":"crawl","url":"https://www.pittcountync.gov/1172/Sites-Buildings","robots_txt":"unknown","terms_status":"unclear","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.pittcountync.gov/1172/Sites-Buildings","review_note":"Official available-properties page located; automated reuse and robots permission not confirmed."},
+    {"id":"greenville-properties","kind":"crawl","url":"https://www.investgreenvillenc.com/real-estate-resources/properties","robots_txt":"unknown","terms_status":"unclear","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.investgreenvillenc.com/real-estate-resources/properties","review_note":"Regional development property search found; permission and small-space coverage unverified."},
+    {"id":"chamber-directory","kind":"crawl","url":"https://www.greenvillenc.org/","robots_txt":"unknown","terms_status":"unclear","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.greenvillenc.org/","review_note":"Chamber and broker/property-management discovery class. Discovered POIs are seeded disabled pending a site-specific rights/robots review."},
+    {"id":"reddit-lease-signals","kind":"reddit","url":"https://oauth.reddit.com","robots_txt":"allowed","terms_status":"unclear","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.redditinc.com/policies/data-api-terms","review_note":"Official OAuth API only. Terms section 3.1 requires separate agreement for commercial use. Free commercial access is not assumed."},
+    {"id":"rss-discovery","kind":"rss","url":"https://www.pittcountync.gov/","robots_txt":"unknown","terms_status":"unclear","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.pittcountync.gov/","review_note":"RSS source class placeholder, not a verified RSS endpoint. Replace URL with an identified permitted feed before enabling."},
+    {"id":"loopnet","kind":"crawl","url":"https://www.loopnet.com/","robots_txt":"unknown","terms_status":"prohibited","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.loopnet.com/solutions/LoopNetTerms-of-Use","review_note":"Terms prohibit scraping, robots and data extraction without authorization."},
+    {"id":"crexi","kind":"crawl","url":"https://www.crexi.com/","robots_txt":"unknown","terms_status":"unclear","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.crexi.com/tos","review_note":"Public terms URL located but exact automation clauses could not be reliably retrieved. Excluded, not presumed allowed."},
+    {"id":"craigslist","kind":"crawl","url":"https://eastnc.craigslist.org/","robots_txt":"unknown","terms_status":"prohibited","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.craigslist.org/about/terms.of.use/en","review_note":"USE section prohibits automated collection without a separate license."},
+    {"id":"facebook-marketplace","kind":"crawl","url":"https://www.facebook.com/marketplace/","robots_txt":"unknown","terms_status":"prohibited","enabled":false,"cadence":"daily","reviewed_at":"2026-09-16","policy_url":"https://www.facebook.com/legal/automated_data_collection_terms","review_note":"Express written Meta permission required for automated collection; none supplied."}
+  ]
+}

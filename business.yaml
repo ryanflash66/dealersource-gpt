@@ -1,34 +1,11 @@
-search:
-  home_base: Greenville, NC 27858
-  max_drive_minutes: 60
-rent:
-  min_monthly: 600
-  max_monthly: 1000
-site:
-  min_vehicle_display: 2
-  office_required: true
-  shared_lot: last_resort
-flood:
-  high_risk_zones: [A, AE, AH, AO, AR, A99, V, VE]
-dealer:
-  license_status: held
-ranking:
-  competitor_radius_miles: 5
-  weights:
-    traffic: 0.35
-    visibility: 0.25
-    distance: 0.20
-    rent: 0.12
-    competitors: 0.08
-mail:
-  sender: owner
-  followup_days: 5
-  max_followups: 2
-  bounce_pause_pct: 5
-  paused: false
-schedule:
-  cron: 0 5 * * *
-  timezone: America/New_York
-  scheduler: claude-code
-evidence:
-  default_ttl_days: 90
+{
+  "search": {"home_base": "Greenville, NC 27858", "max_drive_minutes": 60, "competitor_radius_m": 5000},
+  "rent": {"min_monthly": 600, "max_monthly": 1000},
+  "site": {"min_vehicle_display": 2, "office_required": true, "shared_lot": "last_resort"},
+  "flood": {"high_risk_zones": ["A", "AE", "AH", "AO", "AR", "A99", "V", "VE"]},
+  "dealer": {"license_status": "held", "minimum_office_sqft": 96},
+  "ranking": {"weights": {"traffic": 0.40, "visibility": 0.25, "distance": 0.15, "rent": 0.12, "competitors": 0.08}, "traffic_reference": 40000, "frontage_reference_m": 100},
+  "mail": {"sender": "owner", "followup_days": 5, "max_followups": 2, "bounce_pause_pct": 5, "paused": false},
+  "schedule": {"cron": "0 6 * * *", "timezone": "America/New_York", "scheduler": "claude-routine"},
+  "evidence": {"rent_days": 7, "zoning_days": 30, "flood_days": 30, "listing_days": 7, "context_days": 30}
+}

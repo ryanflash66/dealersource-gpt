@@ -1,11 +1,11 @@
 node_modules/
 dist/
 .data/
-.sites-runtime/
-.vercel/
-.coverage/
+.verify/
 .env
 .env.*
 !.env.example
 *.log
 .DS_Store
+.vercel/
+
