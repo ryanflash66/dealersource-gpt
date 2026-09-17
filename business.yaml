@@ -20,6 +20,13 @@ ranking:
     distance: 0.20
     rent: 0.12
     competitors: 0.08
+score:
+  weights:
+    traffic: 0.35
+    visibility: 0.25
+    distance: 0.20
+    rent: 0.12
+    competitors: 0.08
 mail:
   sender: owner
   followup_days: 5

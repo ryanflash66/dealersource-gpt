@@ -47,6 +47,9 @@ export interface BusinessConfig {
     competitor_radius_miles: number;
     weights: Record<"traffic" | "visibility" | "distance" | "rent" | "competitors", number>;
   };
+  score?: {
+    weights: Record<"traffic" | "visibility" | "distance" | "rent" | "competitors", number>;
+  };
   mail: {
     sender: "owner" | "operator";
     followup_days: number;

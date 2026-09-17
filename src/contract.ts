@@ -239,7 +239,7 @@ function messageCopy(caseType: CaseType, address: string): { subject: string; bo
 }
 
 function scoreSite(site: ContractSite, business: BusinessConfig): number {
-  const weights = business.ranking.weights;
+  const weights = business.score?.weights ?? business.ranking.weights;
   const rentRange = Math.max(1, business.rent.max_monthly - business.rent.min_monthly);
   const parts = {
     traffic: clamp((site.metrics.aadt ?? 0) / 30_000) * weights.traffic,
@@ -423,6 +423,7 @@ export async function runOfflineContract(options: OfflineContractOptions): Promi
   for (const reply of fixtures.replies.filter((item) => Date.parse(item.received_at) <= visibleThrough)) {
     const owner = working.find((item) => item.listings.some((listing) => listing.listing_id === reply.listing_id));
     if (!owner || !owner.site.in_search_area) continue;
+    if (!owner.cases.some((item) => item.case_type === reply.case_type && item.status === "waiting")) continue;
     if (reply.case_type === "rent") {
       const rent = rentFromReply(reply.body);
       if (rent === null) continue;
