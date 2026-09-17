@@ -118,6 +118,7 @@ export interface ContractReport {
   run_date: string;
   offline: true;
   providers: ContractProviderConfig;
+  listings: Array<Pick<ListingFixture, "listing_id" | "source_id" | "url" | "rent_monthly">>;
   sites: ContractSite[];
   evidence: ContractEvidence[];
   external_calls: [];
@@ -466,6 +467,7 @@ export async function runOfflineContract(options: OfflineContractOptions): Promi
     run_date: options.runDate,
     offline: true,
     providers,
+    listings: fixtures.listings.map(({ listing_id, source_id, url, rent_monthly }) => ({ listing_id, source_id, url, rent_monthly })),
     sites: working.map((item) => item.site),
     evidence: evidenceRows,
     external_calls: [],

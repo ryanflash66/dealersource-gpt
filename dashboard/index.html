@@ -62,11 +62,14 @@
   </main>
 
   <main class="dashboard-view page-view" data-page="pipeline" hidden>
-    <div class="page-heading"><div><h1>Pipeline</h1><p>Where every site sits, from discovery through a final outcome.</p></div><span class="page-meta" id="pipeline-meta"></span></div>
+    <div class="page-heading"><div><h1>Where every site sits</h1><p>From discovery through a final outcome.</p></div><span class="page-meta" id="pipeline-meta"></span></div>
     <section><div class="section-title"><strong>Current run</strong><span>Stage totals from report.json</span></div><div class="stage-strip" id="stage-strip"></div></section>
     <div class="pipeline-grid">
       <section><div class="section-title"><strong>All sites</strong><span>Gate state and outcome</span></div><div class="data-card"><div class="site-table table-head"><span>Parcel</span><span>Site</span><span>Stage</span><span>Gates</span><span>Outcome</span></div><div id="pipeline-rows"></div></div></section>
-      <section><div class="section-title"><strong>Open cases</strong><span>Silence is not approval. Follow-ups are automatic.</span></div><div class="data-card cases-table" id="case-rows"></div></section>
+      <div class="pipeline-sidebar">
+        <section><div class="section-title"><strong>Open cases</strong><span>Silence is not approval. Follow-ups are automatic.</span></div><div class="data-card cases-table" id="case-rows"></div></section>
+        <section><div class="section-title"><strong>Emails sent this run</strong><span>Time, subject, recipient and case type</span></div><div class="data-card" id="message-rows"></div></section>
+      </div>
     </div>
   </main>
 

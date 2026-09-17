@@ -4,6 +4,7 @@ dist/
 .sites-runtime/
 .vercel/
 .coverage/
+.tmp/
 .env
 .env.*
 !.env.example

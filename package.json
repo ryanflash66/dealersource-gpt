@@ -11,7 +11,12 @@
     "pipeline": "node --experimental-strip-types src/cli.ts",
     "dashboard:build": "node --experimental-strip-types scripts/build-dashboard.ts",
     "dashboard:dev": "node --experimental-strip-types dashboard/server.ts",
+    "typecheck": "tsc --noEmit",
     "deploy:vercel": "pnpm dashboard:build && vercel --prod",
     "verify": "npm test && npm run dashboard:build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
   }
 }

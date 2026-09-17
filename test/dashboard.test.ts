@@ -6,10 +6,13 @@ import { buildDashboard } from "../scripts/build-dashboard.ts";
 
 test("dashboard builds a credential-free static artifact", async () => {
   const output = await buildDashboard();
-  const [html, script, data, runtime, tokens, shell, fonts, components] = await Promise.all([
+  const [html, script, model, data, messages, run, runtime, tokens, shell, fonts, components] = await Promise.all([
     readFile(resolve(output, "index.html"), "utf8"),
     readFile(resolve(output, "app.js"), "utf8"),
+    readFile(resolve(output, "view-model.js"), "utf8"),
     readFile(resolve(output, "data.json"), "utf8"),
+    readFile(resolve(output, "messages.json"), "utf8"),
+    readFile(resolve(output, "run.json"), "utf8"),
     readFile(resolve(output, "runtime-config.js"), "utf8"),
     readFile(resolve(output, "tokens.css"), "utf8"),
     readFile(resolve(output, "dashboard.css"), "utf8"),
@@ -22,12 +25,16 @@ test("dashboard builds a credential-free static artifact", async () => {
   assert.match(html, /class="pill-nav"/);
   assert.match(html, /id="shortlist"/);
   assert.match(script, /fetchSupabase/);
-  assert.match(script, /schema_version/);
+  assert.match(model, /schema_version/);
   assert.match(script, /gate-result \$\{status\}/);
   assert.match(script, /factor-bars/);
   assert.match(script, /evidence-row/);
+  assert.match(script, /message-rows/);
+  assert.match(model, /resolveTheme/);
+  assert.match(model, /Outside.*search area/);
   assert.match(html, /id="stage-strip"/);
   assert.match(html, /id="case-rows"/);
+  assert.match(html, /id="message-rows"/);
   assert.match(tokens, /--primary: #10A37F/);
   assert.match(tokens, /--primary-hover: #0D876A/);
   assert.match(fonts, /Hanken Grotesk/);
@@ -35,5 +42,9 @@ test("dashboard builds a credential-free static artifact", async () => {
   assert.match(components, /\.site-card/);
   assert.equal(JSON.parse(data).schema_version, "1");
   assert.equal(JSON.parse(data).sites.filter((site: { viable: boolean }) => site.viable).length, 3);
+  assert.equal(JSON.parse(data).listings.length, 10);
+  assert.ok(Array.isArray(JSON.parse(messages)));
+  assert.equal(JSON.parse(run).counts.listings, 10);
+  assert.match(runtime, /Facebook Marketplace/);
   assert.doesNotMatch(runtime, /service_role/i);
 });
