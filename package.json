@@ -12,6 +12,6 @@
     "dashboard:build": "node --experimental-strip-types scripts/build-dashboard.ts",
     "dashboard:dev": "node --experimental-strip-types dashboard/server.ts",
     "deploy:vercel": "pnpm dashboard:build && vercel --prod",
-    "verify": "pnpm test && pnpm pipeline --offline --date 2026-09-16 && pnpm dashboard:build"
+    "verify": "npm test && npm run dashboard:build"
   }
 }

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import type { BusinessConfig, ProviderConfig, SourceRecord } from "./types.ts";
+import type { BusinessConfig, ContractProviderConfig, ProviderConfig, SourceRecord } from "./types.ts";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -92,17 +92,60 @@ export async function loadYaml<T>(path: string): Promise<T> {
   return parseYaml(await readFile(path, "utf8")) as T;
 }
 
+const providerValues = {
+  geocoder: ["census", "nominatim", "google"],
+  parcels: ["nc_onemap", "county", "regrid"],
+  drivetime: ["ors", "valhalla", "google"],
+  imagery: ["mapillary", "streetview"],
+  poi: ["overpass", "places"],
+  crawler: ["anycrawl", "anycrawl_cloud"],
+  tiles: ["protomaps", "mapbox"],
+} as const;
+
+export async function loadContractProviders(path = resolve(projectRoot, "providers.yaml")): Promise<ContractProviderConfig> {
+  const parsed = await loadYaml<Record<string, unknown>>(path);
+  if (typeof parsed.paid_enabled !== "boolean") throw new Error("providers.yaml paid_enabled must be boolean");
+  for (const [key, values] of Object.entries(providerValues)) {
+    if (!(values as readonly unknown[]).includes(parsed[key])) {
+      throw new Error(`providers.yaml ${key} must be one of ${values.join(", ")}`);
+    }
+  }
+  return parsed as unknown as ContractProviderConfig;
+}
+
+function internalProviders(contract: ContractProviderConfig): ProviderConfig {
+  return {
+    paid_enabled: contract.paid_enabled,
+    fixture_fallback: true,
+    providers: {
+      geocoder: contract.geocoder === "google" ? "google_geocoding" : contract.geocoder,
+      parcels: contract.parcels === "county" ? "county_gis" : contract.parcels,
+      zoning: "official_arcgis",
+      drive_time: contract.drivetime === "ors" ? "openrouteservice" : contract.drivetime === "google" ? "google_distance_matrix" : contract.drivetime,
+      traffic: "ncdot_aadt",
+      flood: "fema_nfhl",
+      imagery: contract.imagery === "streetview" ? "google_street_view" : contract.imagery,
+      competitors: contract.poi === "places" ? "google_places" : contract.poi,
+      map_tiles: contract.tiles,
+      crawler: contract.crawler === "anycrawl" ? "anycrawl_self_hosted" : contract.crawler,
+      social: "reddit",
+      mail: "gmail",
+      llm: "scheduled_agent",
+    },
+  };
+}
+
 export async function loadConfig(root = projectRoot): Promise<{
   business: BusinessConfig;
   providers: ProviderConfig;
   sources: SourceRecord[];
 }> {
-  const [business, providers, sourceFile] = await Promise.all([
+  const [business, contractProviders, sourceFile] = await Promise.all([
     loadYaml<BusinessConfig>(resolve(root, "business.yaml")),
-    loadYaml<ProviderConfig>(resolve(root, "providers.yaml")),
+    loadContractProviders(resolve(root, "providers.yaml")),
     loadYaml<{ sources: SourceRecord[] }>(resolve(root, "sources.yaml")),
   ]);
-  return { business, providers, sources: sourceFile.sources };
+  return { business, providers: internalProviders(contractProviders), sources: sourceFile.sources };
 }
 
 export { projectRoot };

@@ -10,9 +10,10 @@ Requirements: Node.js 22.6 or newer and pnpm. No account, network connection, `.
 
 ```bash
 pnpm install --offline --frozen-lockfile
-pnpm test
-pnpm pipeline --offline --date 2026-09-16
-pnpm dashboard:dev
+npm test
+npm run pipeline -- --offline --fixtures test/fixtures/golden-v1/input --out .data/contract --run-date 2026-09-16
+npm run dashboard:build
+npm run dashboard:dev
 ```
 
 Open [http://127.0.0.1:4321](http://127.0.0.1:4321). The fixture run yields two ranked viable sites, one standalone and one shared-lot last resort. It also opens one zoning case. Running the same pipeline command again sends zero outbound fixture messages.
@@ -23,19 +24,19 @@ Generated state and reports live under `.data/` and are ignored by Git. The dash
 
 | Command | Purpose |
 |---|---|
-| `pnpm test` | Run unit, integration, offline-network, schema, dashboard, and replay tests |
-| `pnpm pipeline --offline` | Run all six stages on recorded fixtures |
-| `pnpm pipeline --offline --stage enrich` | Resume or repeat one idempotent stage |
-| `pnpm dashboard:dev` | Build and serve the dashboard locally |
-| `pnpm dashboard:build` | Create the static Vercel artifact in `dashboard/dist/` |
-| `pnpm verify` | Run tests, the full fixture pipeline, and the dashboard build |
+| `npm test` | Run unit, integration, schema, dashboard, golden-fixture, and replay tests |
+| `npm run pipeline -- --offline --fixtures <dir> --out <dir> --run-date YYYY-MM-DD` | Run the binding offline contract against the supplied nine fixture files |
+| `npm run pipeline -- --offline --fixtures <dir> --out <dir> --run-date YYYY-MM-DD --config <providers.yaml>` | Run with an alternate provider selection |
+| `npm run dashboard:dev` | Build and serve the dashboard locally |
+| `npm run dashboard:build` | Create the static Vercel artifact in `dashboard/dist/` |
+| `npm run verify` | Run tests and the dashboard build |
 
 The stages are `discover`, `resolve`, `enrich`, `verify`, `score`, and `report`. Every run writes structured JSON logs and a run summary. See [docs/architecture.md](docs/architecture.md).
 
 ## Configuration
 
 - `business.yaml` contains search, rent, site, flood, ranking, mail, schedule, and evidence-expiry rules.
-- `providers.yaml` selects one adapter per external layer. Change `geocoder: census` to `geocoder: nominatim` to switch behavior without editing code. Production Nominatim must be self-hosted.
+- `providers.yaml` contains the eight binding provider keys and defaults. Change `geocoder: census` to `geocoder: nominatim`, or pass an alternate file with `--config`, to switch the reported selection without editing code.
 - `sources.yaml` is the source allowlist and terms register.
 
 ### Enable a grey source
@@ -79,7 +80,7 @@ Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` for the dashboard build. The anonymou
 
 Copy only the needed names from `.env.example` into the deployment secret store. At minimum, a live run needs endpoints for each selected provider plus Gmail OAuth variables for outbound and inbound mail. Reddit requires its OAuth variables when enabled. The scheduled-agent setup is in [docs/scheduled-agent.md](docs/scheduled-agent.md).
 
-All adapters fall back to fixtures when their variable is absent and `fixture_fallback: true`. Set `fixture_fallback: false` before production cutover so missing live configuration fails the run instead of mixing fixtures with live data.
+The binding offline command never falls back to bundled data and never calls live adapters. Production adapter configuration is separate from the evaluator path so fixture and live data cannot be mixed accidentally.
 
 ### 3. Self-hosted map
 

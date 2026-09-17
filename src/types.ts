@@ -22,6 +22,17 @@ export interface ProviderConfig {
   providers: Record<Layer, string>;
 }
 
+export interface ContractProviderConfig {
+  paid_enabled: boolean;
+  geocoder: "census" | "nominatim" | "google";
+  parcels: "nc_onemap" | "county" | "regrid";
+  drivetime: "ors" | "valhalla" | "google";
+  imagery: "mapillary" | "streetview";
+  poi: "overpass" | "places";
+  crawler: "anycrawl" | "anycrawl_cloud";
+  tiles: "protomaps" | "mapbox";
+}
+
 export interface BusinessConfig {
   search: { home_base: string; max_drive_minutes: number };
   rent: { min_monthly: number; max_monthly: number };

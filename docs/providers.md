@@ -1,6 +1,6 @@
 # Providers and cost controls
 
-Each external layer is selected in `providers.yaml`. The registry validates the layer/name pair and uses recorded fixtures whenever `--offline` is present or the selected adapter's endpoint variable is absent and `fixture_fallback` is true.
+The eight binding evaluator selections live at the root of `providers.yaml`. The contract path validates those values, echoes them in `report.json`, and reads only the directory passed with `--fixtures`. The production registry normalizes the same selections to its internal adapter names.
 
 Paid calls require both controls:
 
