@@ -27,8 +27,8 @@ test("dashboard builds a credential-free static artifact", async () => {
   assert.match(script, /evidence-row/);
   assert.match(html, /id="stage-strip"/);
   assert.match(html, /id="case-rows"/);
-  assert.match(tokens, /--primary: #10A37F/);
-  assert.match(tokens, /--primary-hover: #0D876A/);
+  assert.match(tokens, /--primary: #5B4BC4/);
+  assert.match(tokens, /--primary-hover: #4938AD/);
   assert.match(fonts, /Hanken Grotesk/);
   assert.match(shell, /\.app/);
   assert.match(components, /\.site-card/);
