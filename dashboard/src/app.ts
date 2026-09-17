@@ -1,7 +1,6 @@
 const runtime = window.DEALERSOURCE_CONFIG ?? {};
-
 const $ = (selector) => document.querySelector(selector);
-const icon = (name, className = "") => `<svg class="i ${className}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -13,9 +12,7 @@ function escapeHtml(value) {
 }
 
 function money(value) {
-  return value == null
-    ? "Unknown"
-    : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+  return value == null ? "Unknown" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 }
 
 function formatDate(value, options = { dateStyle: "medium" }) {
@@ -80,83 +77,103 @@ async function loadReport() {
   return response.json();
 }
 
-function normalizeGateStatus(status) {
-  return status === "pass" || status === "fail" || status === "stale" ? status : "pending";
+function gateStatus(value) {
+  if (value === "pass" || value === "fail" || value === "stale") return value;
+  return "pending";
 }
 
-function gateMarkup(gates = []) {
-  const icons = { pass: "check", fail: "x", pending: "clock", stale: "stale" };
-  return gates.map((gate) => {
-    const status = normalizeGateStatus(gate.status);
-    return `<span role="listitem"><span class="chip chip-${status}" data-gate="${escapeHtml(gate.name)}" data-status="${status}">${icon(icons[status])}<span class="gate">${escapeHtml(gate.name)}</span><span class="label">${status[0].toUpperCase()}${status.slice(1)}</span></span></span>`;
+function gateIcon(status) {
+  return status === "pass" ? "check" : status === "fail" ? "x" : status === "stale" ? "alert" : "clock";
+}
+
+function gateResult(gate, compact = false) {
+  const status = gateStatus(gate.status);
+  const label = `${gate.name[0].toUpperCase()}${gate.name.slice(1)}`;
+  if (compact) return `<span class="gate-pill ${status}">${escapeHtml(label)} ${status}</span>`;
+  return `<span class="gate-result ${status}">${icon(gateIcon(status))}${escapeHtml(label)} ${status}</span>`;
+}
+
+function factorData(site) {
+  const score = site.score ?? {};
+  return [
+    { label: "Traffic", height: Math.min(100, Math.max(8, Number(score.traffic ?? 0) / 35 * 100)), value: `${Number(site.metrics?.aadt ?? 0).toLocaleString()} /day` },
+    { label: "Visibility", height: Math.min(100, Math.max(8, Number(score.visibility ?? 0) / 25 * 100)), value: `${site.metrics?.frontageFeet ?? 0} ft` },
+    { label: "Drive", height: Math.min(100, Math.max(8, Number(score.distance ?? 0) / 20 * 100)), value: `${site.metrics?.driveMinutes ?? 0} min` },
+    { label: "Rent", height: Math.min(100, Math.max(8, Number(score.rent ?? 0) / 12 * 100)), value: `${money(site.monthlyRent)}/mo` },
+    { label: "Competitors", height: Math.min(100, Math.max(8, Number(score.competitors ?? 0) / 8 * 100)), value: `${site.metrics?.competitors ?? 0} nearby` },
+  ];
+}
+
+function factorBars(site) {
+  return `<div class="factor-bars" aria-label="Score factors">${factorData(site).map((factor) => `<div class="factor"><i style="height:${factor.height}%"></i></div>`).join("")}</div>`;
+}
+
+function renderSiteCard(site, index, selected = false) {
+  const score = Math.round(Number(site.score?.total ?? 0));
+  return `<article class="site-card${selected ? " is-selected" : ""}${site.sharedLot ? " is-shared" : ""}" data-site-id="${escapeHtml(site.id)}" role="button" tabindex="0" aria-label="Open details for ${escapeHtml(site.address)}">
+    <div><div class="site-photo">Street photo</div><div class="site-rank"><strong>${index + 1}</strong><span>${score}</span></div></div>
+    <div class="site-card-body"><div><div class="site-title"><span>${escapeHtml(site.address)}</span>${site.sharedLot ? '<span class="shared-badge">Shared lot, ranks last</span>' : ""}</div><div class="site-meta"><span class="mono">${escapeHtml(site.parcelId ?? "parcel pending")}</span> · ${escapeHtml(site.metrics?.driveMinutes ?? 0)} min · ${site.listingIds?.length ?? 1} listing${site.listingIds?.length === 1 ? "" : "s"} · ${money(site.monthlyRent)}/mo</div></div><div class="site-lower"><div class="gate-row">${(site.gates ?? []).map((gate) => gateResult(gate)).join("")}</div>${factorBars(site)}</div></div>
+  </article>`;
+}
+
+function oneAwaySites(report) {
+  return report.pipeline.filter((site) => {
+    const statuses = (site.gates ?? []).map((gate) => gateStatus(gate.status));
+    return !site.viable && statuses.filter((status) => status === "pending" || status === "stale").length === 1 && !statuses.includes("fail");
+  });
+}
+
+function renderPendingCard(site, report) {
+  const pendingGate = site.gates.find((gate) => ["pending", "stale"].includes(gateStatus(gate.status)));
+  const itemCase = report.cases.find((item) => item.siteId === site.id);
+  return `<article class="site-card pending-card"><div class="site-photo">Street photo</div><div class="site-card-body"><div><div class="site-title"><span>${escapeHtml(site.address)}</span></div><div class="site-meta"><span class="mono">${escapeHtml(site.parcelId)}</span> · ${escapeHtml(site.metrics?.driveMinutes)} min · ${money(site.monthlyRent)}/mo</div></div><div class="gate-row">${site.gates.map((gate) => gateResult(gate)).join("")}</div><div class="score-note">No score until viable.</div><div class="case-note">${itemCase ? `${escapeHtml(pendingGate.name)} case to ${escapeHtml(itemCase.recipient ?? itemCase.owner)} · next follow-up ${escapeHtml(formatDate(itemCase.nextActionAt))}` : `${escapeHtml(pendingGate.name)} evidence required`}</div></div></article>`;
+}
+
+function evidenceMarkup(site, report) {
+  const source = site.sourceUrls?.[0];
+  return (site.gates ?? []).map((gate) => {
+    const status = gateStatus(gate.status);
+    const link = source ? `<a href="${escapeHtml(source)}" target="_blank" rel="noopener">Open${icon("external")}</a>` : "";
+    return `<div class="evidence-row"><div><div class="fact-line ${status}">${icon(gateIcon(status))}${escapeHtml(gate.name)} ${status}<span>· ${escapeHtml(gate.reason ?? "Evidence recorded")}</span></div><div class="evidence-meta">${escapeHtml(source ? sourceDomain(source) : "source unavailable")} · verified source · fetched ${escapeHtml(formatDate(report.generatedAt))} · report TTL</div></div>${link}</div>`;
   }).join("");
 }
 
-function evidenceRows(site, report) {
-  const source = site.sourceUrls?.[0];
-  const sourceLink = source
-    ? `<a class="link-ext" href="${escapeHtml(source)}" target="_blank" rel="noopener"><span class="source-domain">${escapeHtml(sourceDomain(source))}</span>${icon("external-small")}</a>`
-    : '<span class="muted">not supplied</span>';
-  const gateRows = (site.gates ?? []).map((gate) => {
-    const status = normalizeGateStatus(gate.status);
-    const rowClass = status === "stale" ? "is-stale" : "";
-    return `<tr class="evidence-row ${rowClass}"><td data-label="Fact"><span class="fact">${escapeHtml(gate.name)}: gate evidence</span></td><td data-label="Value" class="val">${escapeHtml(gate.reason ?? status)}</td><td data-label="Method"><span class="tag tag-official">${icon("layer")}Verified source</span></td><td data-label="Fetched" class="mono">${escapeHtml(formatDate(report.generatedAt, { dateStyle: "medium" }))}</td><td data-label="Expires" class="mono expires">report TTL</td><td data-label="Source" class="src">${sourceLink}</td></tr>`;
-  });
-  gateRows.push(`<tr class="evidence-row"><td data-label="Fact"><span class="fact">traffic: AADT</span></td><td data-label="Value" class="val">${Number(site.metrics?.aadt ?? 0).toLocaleString()}</td><td data-label="Method"><span class="tag tag-official">${icon("layer")}NCDOT</span></td><td data-label="Fetched" class="mono">${escapeHtml(formatDate(report.generatedAt, { dateStyle: "medium" }))}</td><td data-label="Expires" class="mono expires">report TTL</td><td data-label="Source" class="src">${sourceLink}</td></tr>`);
-  return gateRows.join("");
-}
-
-function renderSite(site, index, report) {
-  const score = site.score ?? {};
-  const scoreTotal = Number(score.total ?? 0);
-  const scoreDisplay = (scoreTotal / 100).toFixed(2);
-  const factors = [
-    ["Traffic", "traffic", "35%", Number(site.metrics?.aadt ?? 0).toLocaleString()],
-    ["Visibility", "visibility", "25%", `${site.metrics?.frontageFeet ?? 0} ft`],
-    ["Drive", "distance", "20%", `${site.metrics?.driveMinutes ?? 0} min`],
-    ["Rent", "rent", "12%", money(site.monthlyRent)],
-    ["Competitors", "competitors", "8%", `${site.metrics?.competitors ?? 0} within 5 mi`],
-  ];
-  const shared = site.sharedLot ? " is-shared" : "";
-  const selected = index === 0 ? " is-selected" : "";
-  const rankClasses = `rank${shared}${selected}`;
-  return `<li class="site-card${shared}${selected}" id="site-${escapeHtml(site.id)}" data-site-id="${escapeHtml(site.id)}" data-lat="${site.latitude}" data-lon="${site.longitude}">
-    <div class="card-main">
-      <div class="card-head"><span class="${rankClasses}" aria-label="Rank ${index + 1}${site.sharedLot ? ", shared lot" : ""}" title="Rank ${index + 1}">${index + 1}</span><div class="card-title"><div class="addr"><a href="#site-${escapeHtml(site.id)}">${escapeHtml(site.address)}</a></div><div class="city">Eastern North Carolina · <span class="mono">${escapeHtml(site.parcelId ?? "parcel pending")}</span></div></div><div class="card-flags">${site.sharedLot ? `<span class="flag-shared">${icon("shared")}Shared lot</span>` : ""}</div></div>
-      <div class="facts"><span class="fact">${icon("dollar")}<span class="v">${money(site.monthlyRent)}</span><span class="u">/ mo</span></span><span class="fact">${icon("car")}<span class="v">${escapeHtml(site.metrics?.driveMinutes ?? 0)}</span><span class="u">min drive</span></span><span class="fact">${icon("pin")}<span class="v">${Number(site.metrics?.aadt ?? 0).toLocaleString()}</span><span class="u">AADT</span></span></div>
-      <div class="gates" role="list" aria-label="Gates">${gateMarkup(site.gates)}</div>
-      <div class="score"><div class="score-row"><span class="caps">Score</span><div class="score-track score-bar" role="img" aria-label="Score ${scoreDisplay} of 1.00">${factors.map((factor, factorIndex) => `<span class="seg seg-${factorIndex + 1}" style="width:${Number(score[factor[1]] ?? 0)}%" title="${factor[0]}: ${(Number(score[factor[1]] ?? 0) / 100).toFixed(2)}"></span>`).join("")}</div><span class="score-value">${scoreDisplay}</span></div><dl class="breakdown">${factors.map((factor, factorIndex) => `<div><dt><span class="sw seg-${factorIndex + 1}"></span>${factor[0]}<span class="w" title="weight">${factor[2]}</span></dt><dd><b>${(Number(score[factor[1]] ?? 0) / 100).toFixed(2)}</b><span class="raw">${escapeHtml(factor[3])}</span></dd></div>`).join("")}</dl></div>
-      <details class="evidence"${index === 0 ? " open" : ""}><summary>${icon("chevron", "i-chev")}View evidence <span class="muted">(${(site.gates?.length ?? 0) + 1})</span></summary><table class="evidence-table"><colgroup><col class="c-fact"><col class="c-val"><col class="c-method"><col class="c-fetched"><col class="c-expires"><col class="c-src"></colgroup><thead><tr><th scope="col">Fact</th><th scope="col">Value</th><th scope="col">Method</th><th scope="col">Fetched</th><th scope="col">Expires</th><th scope="col">Source</th></tr></thead><tbody>${evidenceRows(site, report)}</tbody></table></details>
-    </div>
-    <div class="thumbs"><div class="thumb thumb-street" role="img" aria-label="Street-level photo placeholder for ${escapeHtml(site.address)}">${icon("image", "i-20")}<span class="thumb-label">Street</span></div><div class="thumb thumb-aerial" role="img" aria-label="Aerial thumbnail placeholder for ${escapeHtml(site.address)}">${icon("layer", "i-20")}<span class="thumb-label">Aerial</span></div></div>
-  </li>`;
+function renderDrawer(site, index, report) {
+  const factors = factorData(site);
+  $("#site-drawer").innerHTML = `<div class="drawer-head"><div><div class="drawer-title"><span class="drawer-rank">${index + 1}</span>${escapeHtml(site.address)}</div><div class="drawer-meta"><span class="mono">${escapeHtml(site.parcelId)}</span> · ${escapeHtml(site.metrics?.driveMinutes)} min from home base · ${site.sharedLot ? "shared lot" : "standalone lot"}</div></div></div><div class="drawer-body"><div class="drawer-images"><div class="drawer-image">Street photo</div><div class="drawer-image">Aerial</div></div><div class="viable-banner"><strong>${icon("check-circle")}Viable. All three gates passed.</strong><span>Score ${Math.round(Number(site.score?.total ?? 0))}</span></div><div><div class="eyebrow">Gates and evidence</div>${evidenceMarkup(site, report)}</div><div><div class="eyebrow">Why it ranks ${index === 0 ? "first" : `#${index + 1}`}</div><div class="factor-detail">${factors.map((factor, factorIndex) => `<div><div class="bar factor factor-${factorIndex + 1}"><i style="height:${factor.height}%"></i></div><small>${factor.label}</small><b>${escapeHtml(factor.value)}</b></div>`).join("")}</div></div><div><div class="eyebrow">Merged listings</div><div class="case-note">${site.listingIds?.length ?? 1} source record${site.listingIds?.length === 1 ? "" : "s"} merged into this site.</div></div></div>`;
 }
 
 function markerPosition(site, sites) {
   const lats = sites.map((item) => Number(item.latitude));
   const lons = sites.map((item) => Number(item.longitude));
-  const minLat = Math.min(...lats) - 0.02, maxLat = Math.max(...lats) + 0.02;
-  const minLon = Math.min(...lons) - 0.02, maxLon = Math.max(...lons) + 0.02;
-  return {
-    left: 8 + ((Number(site.longitude) - minLon) / (maxLon - minLon || 1)) * 84,
-    top: 92 - ((Number(site.latitude) - minLat) / (maxLat - minLat || 1)) * 84,
-  };
+  const minLat = Math.min(...lats) - .03, maxLat = Math.max(...lats) + .03;
+  const minLon = Math.min(...lons) - .03, maxLon = Math.max(...lons) + .03;
+  return { left: 8 + ((Number(site.longitude) - minLon) / (maxLon - minLon || 1)) * 84, top: 92 - ((Number(site.latitude) - minLat) / (maxLat - minLat || 1)) * 84 };
 }
 
-function renderMap(sites) {
-  const container = $("#map-static");
-  if (!sites.length) { container.innerHTML = '<div class="empty">No viable sites to map.</div>'; return; }
-  const first = sites[0];
-  const firstPosition = markerPosition(first, sites);
-  container.innerHTML = `<span class="map-home" style="left:50%;top:50%" title="Home base">${icon("home")}</span>${sites.map((site, index) => {
+function renderMap(report) {
+  const pending = oneAwaySites(report);
+  const sites = [...report.shortlist, ...pending];
+  const map = $("#map-static");
+  if (!sites.length) { map.innerHTML = '<div class="empty">No candidate sites to map.</div>'; return; }
+  map.innerHTML = `<span class="map-home" style="left:48%;top:46%">${icon("home")}</span>${sites.map((site) => {
+    const index = report.shortlist.findIndex((item) => item.id === site.id);
     const position = markerPosition(site, sites);
-    return `<button type="button" class="static-marker marker rank${index === 0 ? " is-selected" : ""}${site.sharedLot ? " is-shared" : ""}" style="left:${position.left}%;top:${position.top}%" data-site-id="${escapeHtml(site.id)}" aria-label="Rank ${index + 1}, ${escapeHtml(site.address)}">${index + 1}</button>`;
-  }).join("")}<div class="map-popup is-below" style="left:calc(${firstPosition.left}% - 120px);top:calc(${firstPosition.top}% + 24px)" role="dialog" aria-label="Selected site"><div class="pop-head"><span class="rank">1</span><span class="addr">${escapeHtml(first.address)}</span></div><div class="pop-body"><div class="pop-facts"><span><b>${money(first.monthlyRent)}</b>/mo</span><span><b>${escapeHtml(first.metrics?.driveMinutes)}</b> min</span><span>score <b>${(Number(first.score?.total ?? 0) / 100).toFixed(2)}</b></span></div><div class="gates" role="list" aria-label="Gates">${gateMarkup(first.gates)}</div><a class="pop-link" href="#site-${escapeHtml(first.id)}">Open in list</a></div></div><span class="map-caption">Static preview · MapLibre replaces this when online</span>`;
-  container.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => document.getElementById(`site-${button.dataset.siteId}`)?.scrollIntoView({ behavior: "smooth", block: "center" })));
+    return `<button class="map-marker${index < 0 ? " pending" : ""}" style="left:${position.left}%;top:${position.top}%" data-site-id="${escapeHtml(site.id)}" aria-label="${index < 0 ? "Pending" : `Rank ${index + 1}`}, ${escapeHtml(site.address)}">${index < 0 ? "?" : index + 1}</button>`;
+  }).join("")}`;
+  map.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => {
+    const index = report.shortlist.findIndex((site) => site.id === button.dataset.siteId);
+    if (index >= 0) selectSite(index, report);
+  }));
 }
 
-async function upgradeMap(sites) {
-  if (!runtime.mapStyleUrl || !runtime.maplibreAssetUrl || !sites.length) return;
+function selectSite(index, report) {
+  document.querySelectorAll(".site-card[data-site-id]").forEach((card) => card.classList.toggle("is-selected", card.dataset.siteId === report.shortlist[index].id));
+  renderDrawer(report.shortlist[index], index, report);
+}
+
+async function upgradeMap(report) {
+  if (!runtime.mapStyleUrl || !runtime.maplibreAssetUrl || !report.shortlist.length) return;
   try {
     const css = document.createElement("link");
     css.rel = "stylesheet";
@@ -165,89 +182,100 @@ async function upgradeMap(sites) {
     const module = await import(`${runtime.maplibreAssetUrl.replace(/\/$/, "")}/maplibre-gl.js`);
     const maplibregl = module.default ?? module;
     const map = new maplibregl.Map({ container: "map", style: runtime.mapStyleUrl, center: [-77.36, 35.61], zoom: 8 });
-    const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
-    for (const site of sites) new maplibregl.Marker({ color: accent }).setLngLat([site.longitude, site.latitude]).setPopup(new maplibregl.Popup().setText(site.address)).addTo(map);
+    const primary = getComputedStyle($("#app")).getPropertyValue("--primary").trim();
+    for (const site of report.shortlist) new maplibregl.Marker({ color: primary }).setLngLat([site.longitude, site.latitude]).setPopup(new maplibregl.Popup().setText(site.address)).addTo(map);
     map.on("load", () => { $("#map-static").hidden = true; });
   } catch (error) {
-    console.warn("MapLibre unavailable; retaining the offline preview.", error);
+    console.warn("MapLibre unavailable; retaining the static preview.", error);
   }
-}
-
-function renderShortlist(report) {
-  $("#shortlist-summary").textContent = `${report.shortlist.length} viable sites · ranked by weighted score · standalone before shared lots`;
-  $("#shortlist").innerHTML = report.shortlist.map((site, index) => renderSite(site, index, report)).join("");
-  const almost = report.pipeline.filter((site) => !site.viable && (site.gates ?? []).filter((gate) => normalizeGateStatus(gate.status) === "pending").length === 1 && !(site.gates ?? []).some((gate) => normalizeGateStatus(gate.status) === "fail"));
-  $("#almost-summary").textContent = `${almost.length} sites · pending is unresolved, not a pass`;
-  $("#almost-list").innerHTML = almost.map((site) => {
-    const gate = site.gates.find((item) => normalizeGateStatus(item.status) === "pending");
-    const itemCase = report.cases.find((item) => item.siteId === site.id);
-    return `<li class="almost-row"><div><div class="addr">${escapeHtml(site.address)}</div><div class="city">${money(site.monthlyRent)}/mo · ${escapeHtml(site.metrics?.driveMinutes)} min</div></div><div>${gateMarkup([gate])}</div><div class="case"><span class="case-status case-${itemCase ? "awaiting" : "blocked"}">${icon(itemCase ? "mail" : "refresh")}${itemCase ? escapeHtml(itemCase.status) : "no case"}</span><span>${escapeHtml(gate.name)} ${itemCase ? `case → <span class="mono">${escapeHtml(itemCase.recipient ?? itemCase.owner)}</span>` : "requires evidence"}</span></div></li>`;
-  }).join("");
-  renderMap(report.shortlist);
 }
 
 function pipelineStage(site) {
   if (site.viable || site.stage === "reported" || site.stage === "scored") return "scored";
-  if ((site.gates ?? []).some((gate) => normalizeGateStatus(gate.status) === "fail")) return "excluded";
+  if ((site.gates ?? []).some((gate) => gateStatus(gate.status) === "fail")) return "excluded";
   return ["discovered", "resolved", "enriched", "verifying"].includes(site.stage) ? site.stage : "verifying";
 }
 
+function stageNote(stage) {
+  return { discovered: "listing or parcel seen", resolved: "merged candidate sites", enriched: "facts fetched", verifying: "waiting on evidence", scored: "viable and ranked", excluded: "failed a gate" }[stage];
+}
+
+function stageColor(stage) {
+  return { discovered: "var(--stage-1)", resolved: "var(--stage-2)", enriched: "var(--stage-3)", verifying: "var(--stage-4)", scored: "var(--stage-5)", excluded: "var(--stage-6)" }[stage];
+}
+
+function renderShortlist(report) {
+  const almost = oneAwaySites(report);
+  const excluded = report.pipeline.filter((site) => pipelineStage(site) === "excluded").length;
+  const verifying = report.pipeline.filter((site) => pipelineStage(site) === "verifying").length;
+  const metrics = [["Viable", report.shortlist.length], ["One away", almost.length], ["Verifying", verifying], ["Excluded", excluded]];
+  $("#shortlist-metrics").innerHTML = metrics.map(([label, value]) => `<div class="metric-card"><span>${label}</span><strong>${value}</strong></div>`).join("");
+  $("#shortlist").innerHTML = report.shortlist.map((site, index) => renderSiteCard(site, index, index === 0)).join("");
+  $("#almost-list").innerHTML = almost.length ? almost.map((site) => renderPendingCard(site, report)).join("") : '<div class="empty">No site is exactly one answer away.</div>';
+  document.querySelectorAll(".site-card[data-site-id]").forEach((card) => {
+    const open = () => selectSite(report.shortlist.findIndex((site) => site.id === card.dataset.siteId), report);
+    card.addEventListener("click", open);
+    card.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } });
+  });
+  if (report.shortlist.length) renderDrawer(report.shortlist[0], 0, report);
+  renderMap(report);
+}
+
 function renderPipeline(report) {
-  const stages = [
-    ["discovered", "listing or parcel seen, not yet resolved"], ["resolved", "address, parcel and drive time known"],
-    ["enriched", "traffic, visibility and POIs fetched"], ["verifying", "one or more gates pending"],
-    ["scored", "all three gates pass"], ["excluded", "a gate failed or policy excluded it"],
-  ];
-  $("#pipeline-summary").textContent = `${report.pipeline.length} sites in this run · by current stage`;
-  $("#stage-strip").innerHTML = stages.map(([stage, description]) => {
-    const count = report.pipeline.filter((site) => pipelineStage(site) === stage).length;
-    return `<li class="stage${stage === "scored" ? " is-active" : ""}${stage === "excluded" ? " is-excluded" : ""}"><div class="n">${count}</div><div class="l">${stage[0].toUpperCase()}${stage.slice(1)}</div><div class="d">${description}</div></li>`;
+  const stages = ["discovered", "resolved", "enriched", "verifying", "scored", "excluded"];
+  $("#pipeline-meta").textContent = `${report.pipeline.length} sites · ${report.cases.length} open cases`;
+  $("#stage-strip").innerHTML = stages.map((stage) => `<div class="stage" style="--stage-color:${stageColor(stage)}"><div class="label">${stage[0].toUpperCase()}${stage.slice(1)}</div><div class="count">${report.pipeline.filter((site) => pipelineStage(site) === stage).length}</div><div class="note">${stageNote(stage)}</div></div>`).join("");
+  $("#pipeline-rows").innerHTML = report.pipeline.map((site) => {
+    const stage = pipelineStage(site);
+    const rank = report.shortlist.findIndex((item) => item.id === site.id);
+    const statuses = (site.gates ?? []).map((gate) => gateStatus(gate.status));
+    const outcome = rank >= 0 ? `Rank ${rank + 1}, score ${Math.round(Number(site.score?.total ?? 0))}` : statuses.includes("fail") ? site.gates.find((gate) => gateStatus(gate.status) === "fail")?.reason : "One answer away";
+    const outcomeClass = statuses.includes("fail") ? "fail" : rank < 0 ? "wait" : "";
+    return `<div class="pipeline-row"><span class="parcel">${escapeHtml(site.parcelId)}</span><div><div class="site-name">${escapeHtml(site.address)}</div><div class="row-sub">${site.listingIds?.length ?? 1} listing${site.listingIds?.length === 1 ? "" : "s"} · ${escapeHtml(site.metrics?.driveMinutes)} min${site.sharedLot ? " · shared lot" : ""}</div></div><span class="stage-label" style="--stage-color:${stageColor(stage)}"><i class="stage-dot"></i>${stage[0].toUpperCase()}${stage.slice(1)}</span><div class="gate-pills">${site.gates?.length ? site.gates.map((gate) => gateResult(gate, true)).join("") : '<span class="row-sub">Not checked</span>'}</div><span class="outcome ${outcomeClass}">${escapeHtml(outcome)}</span></div>`;
   }).join("");
-  $("#cases-summary").textContent = `${report.cases.length} open · “no reply” is not approval`;
-  $("#cases-body").innerHTML = report.cases.length ? report.cases.map((item) => {
+  $("#case-rows").innerHTML = report.cases.length ? report.cases.map((item) => {
     const site = report.pipeline.find((candidate) => candidate.id === item.siteId);
-    const statusClass = item.status === "bounced" ? "bounced" : item.status === "replied" ? "replied" : "awaiting";
-    const statusIcon = statusClass === "bounced" ? "alert" : statusClass === "replied" ? "check" : "clock";
-    return `<tr><td data-label="Site"><span class="addr">${escapeHtml(site?.address ?? item.siteId)}</span><span class="sub mono">${escapeHtml(item.siteId)}</span></td><td data-label="Case">${escapeHtml(item.type)}</td><td data-label="Recipient" class="mono">${escapeHtml(item.recipient ?? item.owner)}</td><td data-label="Opened" class="mono">${escapeHtml(formatDate(item.openedAt))}</td><td data-label="Follow-ups" class="num">${escapeHtml(item.followups ?? 0)}</td><td data-label="Status"><span class="case-status case-${statusClass}">${icon(statusIcon)}${escapeHtml(item.status)}</span></td><td data-label="Next" class="next">Next action ${escapeHtml(formatDate(item.nextActionAt))}</td></tr>`;
-  }).join("") : '<tr><td colspan="7"><div class="empty">No unresolved cases.</div></td></tr>';
-  $("#pipeline-body").innerHTML = report.pipeline.map((site) => `<tr><td data-label="Site"><span class="addr">${escapeHtml(site.address)}</span><span class="sub mono">${escapeHtml(site.id)}</span></td><td data-label="Stage">${escapeHtml(pipelineStage(site))}</td><td data-label="Rent">${money(site.monthlyRent)}</td><td data-label="Gates"><div class="gates" role="list" aria-label="Gates">${gateMarkup(site.gates)}</div></td><td data-label="Lot">${site.sharedLot ? "Shared" : "Standalone"}</td></tr>`).join("");
+    const status = item.status === "replied" ? "answered" : item.status === "held" || item.status === "bounced" ? "held" : "awaiting";
+    const age = Math.max(0, Math.floor((new Date(report.generatedAt) - new Date(item.openedAt)) / 86400000));
+    return `<div class="case-row"><div><strong>${escapeHtml(site?.address ?? item.siteId)} · ${escapeHtml(item.type)}</strong><p>To ${escapeHtml(item.recipient ?? item.owner)}</p><p>Opened ${escapeHtml(formatDate(item.openedAt))} · <span class="mono">${age} d</span> · ${escapeHtml((item.followups ?? 0) + 1)} email${item.followups ? "s" : ""} sent</p><p class="next">Next: follow-up ${escapeHtml(formatDate(item.nextActionAt))}</p></div><span class="status-pill ${status}">${status === "answered" ? "Answered" : status === "held" ? "Held, sending paused" : "Awaiting reply"}</span></div>`;
+  }).join("") : '<div class="empty">No open cases.</div>';
+}
+
+function isPaused(report) {
+  return Boolean(report.config?.business?.mail?.paused) || report.exceptions.some((item) => /paused|bounce/i.test(`${item.type} ${item.message}`));
 }
 
 function renderExceptions(report) {
-  const paused = Boolean(report.config?.business?.mail?.paused) || report.exceptions.some((item) => /paused|bounce/i.test(`${item.type} ${item.message}`));
+  const paused = isPaused(report);
+  $("#exceptions-meta").textContent = `${report.exceptions.length} open`;
   $("#exception-count").textContent = report.exceptions.length;
   $("#exception-count").classList.toggle("is-alert", report.exceptions.length > 0);
-  $("#policy-summary").textContent = `${report.exceptions.length} · never treated as verified evidence`;
-  $("#exceptions-list").innerHTML = report.exceptions.map((item) => `<li><span class="k">${escapeHtml(item.type)}<span class="sub">${escapeHtml(item.severity)}</span></span><span class="r">${escapeHtml(item.message)}</span><span class="m">${icon("ban", "i-16")}</span></li>`).join("");
-  $("#exception-banners").innerHTML = paused ? `<div class="banner banner-paused" role="alert">${icon("pause")}<div class="b-title">Sending paused</div><div class="b-meta"><span>Automated outreach remains off until the recorded bounce or system pause is resolved.</span><span>The dashboard is read-only.</span></div></div>` : "";
-  $("#global-banner").innerHTML = paused ? `<div class="paused-strip" role="status">${icon("pause", "i-16")}<span>Sending paused by the current report configuration.</span><a href="#exceptions">See exceptions</a></div>` : "";
+  $("#pause-card").innerHTML = paused ? `<div class="pause-card"><span class="pause-disc">${icon("pause")}</span><div><h2>Email sending paused.</h2><p>A recorded bounce or system pause stopped outreach. Runs continue and records still update. No follow-ups go out until the issue is resolved.</p></div><div class="pause-stats"><div>${report.cases.length} case${report.cases.length === 1 ? "" : "s"} waiting</div><div>Follow-ups held</div></div></div>` : "";
+  $("#exceptions-list").innerHTML = report.exceptions.length ? report.exceptions.map((item) => `<div class="exception-row"><div><strong>${escapeHtml(item.type)}</strong><p>${escapeHtml(item.message)}</p></div><span class="neutral-pill">${item.severity === "error" ? "Failed today" : "Excluded by policy"}</span></div>`).join("") : '<div class="empty">No source or provider exceptions.</div>';
+  const stale = report.pipeline.flatMap((site) => (site.gates ?? []).filter((gate) => gateStatus(gate.status) === "stale").map((gate) => ({ site, gate })));
+  $("#evidence-exceptions").innerHTML = stale.length ? stale.map(({ site, gate }) => `<div class="evidence-exception stale"><div><strong>${escapeHtml(gate.name)} evidence · ${escapeHtml(site.address)}</strong><p>${escapeHtml(gate.reason)} · re-fetch queued</p></div><span class="neutral-pill">Expired</span></div>`).join("") : '<div class="empty">No evidence is expired in this report.</div>';
   return paused;
 }
 
 function renderConfig(report, paused) {
   const business = report.config?.business ?? {};
-  const configRows = [
-    ["Home base", business.search?.home_base, "search center"],
-    ["Max drive time", `${business.search?.max_drive_minutes ?? "?"} min`, "from home base"],
-    ["Rent range", `${money(business.rent?.min_monthly)} – ${money(business.rent?.max_monthly)} / mo`, "written evidence required"],
-    ["Shared-lot policy", business.site?.shared_lot, "ranked after standalone sites"],
-    ["Flood zones excluded", business.flood?.high_risk_zones?.join(", "), "FEMA high-risk zones"],
-    ["Search schedule", business.schedule?.cron, business.schedule?.timezone],
+  const rows = [
+    ["Home base", business.search?.home_base, "Search center for drive time"],
+    ["Drive time", `${business.search?.max_drive_minutes ?? "?"} min`, "Maximum from home base"],
+    ["Monthly rent", `${money(business.rent?.min_monthly)} to ${money(business.rent?.max_monthly)}`, "Written quote required"],
+    ["Vehicle display", `${business.site?.min_vehicle_display ?? "?"} minimum`, "Office required"],
+    ["Shared lots", business.site?.shared_lot, "Always ranked after standalone sites"],
+    ["Flood zones", business.flood?.high_risk_zones?.join(", "), "Excluded high-risk zones"],
+    ["Follow-ups", `${business.mail?.max_followups ?? "?"} per case`, `${business.mail?.followup_days ?? "?"} days apart`],
   ];
-  $("#business-config").innerHTML = configRows.map(([key, value, note]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value ?? "Not configured")}<span class="sub">${escapeHtml(note ?? "")}</span></dd></div>`).join("");
-  const providers = report.config?.providers?.providers ?? report.config?.providers ?? {};
-  const paidEnabled = Boolean(report.config?.providers?.paid_enabled);
-  $("#paid-indicator").className = `paid-indicator paid-${paidEnabled ? "on" : "off"}`;
-  $("#paid-indicator").innerHTML = `${icon(paidEnabled ? "alert" : "check")}Paid providers: ${paidEnabled ? "on" : "off"}`;
-  $("#providers-body").innerHTML = Object.entries(providers).map(([layer, provider]) => `<tr><td data-label="Layer" class="mono">${escapeHtml(layer)}</td><td data-label="Selected provider"><span class="addr">${escapeHtml(provider)}</span></td><td data-label="Cost"><span class="cost ${paidEnabled ? "cost-paid" : "cost-free"}">${paidEnabled ? "configured" : "free/default"}</span></td><td data-label="Enabled"><span class="onoff onoff-on"><span class="sw"></span>on</span></td></tr>`).join("");
+  $("#business-config").innerHTML = rows.map(([label, value, note]) => `<div class="kv-row"><span>${escapeHtml(label)}</span><div><strong>${escapeHtml(value ?? "Not configured")}</strong><small>${escapeHtml(note)}</small></div></div>`).join("");
+  const runRows = [["Generated", formatDate(report.generatedAt, { dateStyle: "medium", timeStyle: "short" })], ["Sites", report.pipeline.length], ["Viable", report.shortlist.length], ["Open cases", report.cases.length], ["Exceptions", report.exceptions.length], ["Status", paused ? "sending paused" : "complete"]];
   $("#run-id").textContent = report.runId;
-  const summary = [
-    ["Generated", formatDate(report.generatedAt, { dateStyle: "medium", timeStyle: "short" })],
-    ["Sites", report.pipeline.length], ["Viable", report.shortlist.length], ["Cases open", report.cases.length],
-    ["Exceptions", report.exceptions.length], ["Paid providers", paidEnabled ? "on" : "off"],
-    ["Mail", paused ? "paused" : "ready"], ["Status", "complete"],
-  ];
-  $("#run-summary").innerHTML = summary.map(([key, value]) => `<div><div class="k">${escapeHtml(key)}</div><div class="v">${escapeHtml(value)}</div></div>`).join("");
+  $("#run-summary").innerHTML = runRows.map(([label, value]) => `<div class="kv-row"><span>${escapeHtml(label)}</span><div><strong class="mono">${escapeHtml(value)}</strong></div></div>`).join("");
+  const providers = report.config?.providers?.providers ?? report.config?.providers ?? {};
+  const paid = Boolean(report.config?.providers?.paid_enabled);
+  $("#paid-indicator").innerHTML = `<span class="cost-pill ${paid ? "paid" : "free"}">${paid ? "Paid" : "Free"}</span> ${paid ? "Paid providers enabled" : "All selected providers use the free configuration"}`;
+  $("#provider-rows").innerHTML = Object.entries(providers).map(([kind, provider]) => `<div class="provider-row"><span class="kind">${escapeHtml(kind)}</span><div><strong>${escapeHtml(provider)}</strong><small>Selected provider</small></div><span class="row-sub">Fixture fallback</span><span class="cost-pill ${paid ? "paid" : "free"}">${paid ? "Paid" : "Free"}</span><span class="provider-status">OK</span></div>`).join("");
 }
 
 function showView(view) {
@@ -259,22 +287,21 @@ function showView(view) {
     page.removeAttribute("id");
     if (active) page.id = "main";
   });
-  document.querySelectorAll(".nav a[data-view]").forEach((link) => {
+  document.querySelectorAll(".pill-nav a[data-view]").forEach((link) => {
     if (link.dataset.view === selected) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
   });
-  document.title = `dealersource | ${selected[0].toUpperCase()}${selected.slice(1)}`;
+  $("#health-strip").hidden = selected !== "shortlist";
+  $("#app").classList.toggle("shortlist-active", selected === "shortlist");
+  document.title = `dealersource | ${selected === "config" ? "Configuration" : selected[0].toUpperCase() + selected.slice(1)}`;
 }
 
 function setupInteractions() {
+  const media = matchMedia("(prefers-color-scheme: dark)");
+  const applyTheme = () => $("#app").classList.toggle("dark", media.matches);
+  applyTheme();
+  media.addEventListener?.("change", applyTheme);
   window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
-  $(".theme-toggle").addEventListener("click", () => {
-    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("dealersource-theme", next);
-  });
-  const savedTheme = localStorage.getItem("dealersource-theme");
-  if (savedTheme === "light" || savedTheme === "dark") document.documentElement.dataset.theme = savedTheme;
   showView(location.hash.slice(1));
 }
 
@@ -284,12 +311,13 @@ try {
   renderShortlist(report);
   renderPipeline(report);
   renderConfig(report, paused);
-  const state = paused ? "paused" : "ok";
-  $("#run-status").innerHTML = `<span class="dot dot-${state}" aria-hidden="true"></span><span>Last run <span class="mono">${escapeHtml(formatDate(report.generatedAt, { dateStyle: "medium", timeStyle: "short" }))}</span> · ${paused ? "Paused" : "Complete"}</span>`;
-  $("#footer-run").textContent = report.runId;
+  $("#report-date").textContent = `Report ${formatDate(report.generatedAt, { dateStyle: "medium" })}`;
+  $("#run-status").innerHTML = paused ? `<span class="status-with-icon status-paused">${icon("pause")}Sending paused</span><span>Last run ${formatDate(report.generatedAt, { timeStyle: "short" })}</span>` : `<span class="status-with-icon status-ok">${icon("check-circle")}Running</span><span>Last run ${formatDate(report.generatedAt, { timeStyle: "short" })}</span>`;
+  $("#health-strip").classList.toggle("is-paused", paused);
+  $("#health-strip").innerHTML = `<strong>${icon(paused ? "pause" : "check-circle")}${paused ? "Sending paused" : "Automation running"}</strong><span>Last run ${formatDate(report.generatedAt, { dateStyle: "medium", timeStyle: "short" })}</span><span><span class="mono">${report.pipeline.length}</span> sites · <span class="mono">${report.shortlist.length}</span> viable</span><span><span class="mono">${report.cases.length}</span> open case${report.cases.length === 1 ? "" : "s"}</span><span><span class="mono">${report.exceptions.length}</span> exceptions</span><span class="push">Free sources only</span>`;
   setupInteractions();
-  await upgradeMap(report.shortlist);
+  await upgradeMap(report);
 } catch (error) {
-  $("#main").innerHTML = `<div class="banner banner-failed" role="alert">${icon("x")}<div class="b-title">Dashboard unavailable</div><div class="b-meta"><span>${escapeHtml(error.message)}</span></div></div>`;
-  $("#run-status").innerHTML = '<span class="dot dot-failed"></span><span>Data load failed</span>';
+  $("#main").innerHTML = `<div class="pause-card"><span class="pause-disc">${icon("x")}</span><div><h2>Dashboard unavailable.</h2><p>${escapeHtml(error.message)}</p></div></div>`;
+  $("#run-status").innerHTML = `<span class="status-with-icon status-failed">${icon("x")}Data load failed</span>`;
 }

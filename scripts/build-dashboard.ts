@@ -10,6 +10,8 @@ export async function buildDashboard(): Promise<string> {
   await mkdir(output, { recursive: true });
   await Promise.all([
     cp(resolve(source, "index.html"), resolve(output, "index.html")),
+    cp(resolve(source, "fonts.css"), resolve(output, "fonts.css")),
+    cp(resolve(source, "fonts"), resolve(output, "fonts"), { recursive: true }),
     cp(resolve(source, "tokens.css"), resolve(output, "tokens.css")),
     cp(resolve(source, "dashboard.css"), resolve(output, "dashboard.css")),
     cp(resolve(source, "styles.css"), resolve(output, "styles.css")),
