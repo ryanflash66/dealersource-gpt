@@ -41,7 +41,7 @@ function runContract(fixtures: string, out: string, config?: string) {
   const npm = process.platform === "win32" ? "npm.cmd" : "npm";
   const args = ["run", "pipeline", "--", "--offline", "--fixtures", fixtures, "--out", out, "--run-date", "2026-09-16"];
   if (config) args.push("--config", config);
-  const env = { ...process.env, CI: "1", HTTP_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "" };
+  const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", HTTP_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "" };
   for (const key of Object.keys(env)) if (/^(SUPABASE|GMAIL|GOOGLE|REDDIT|VERCEL|ANTHROPIC|DEALERSOURCE)_/.test(key)) delete env[key];
   const quote = process.platform === "win32"
     ? (value: string) => `"${value.replaceAll('"', '""')}"`
@@ -76,7 +76,7 @@ test("golden-v1 exact CLI contract matches expected results and replays idempote
   assert.equal(report.run_date, expected.run_date);
   assert.equal(report.offline, true);
   assert.deepEqual(report.external_calls, []);
-  const byParcel = new Map(report.sites.map((site: any) => [site.parcel_id, site]));
+  const byParcel = new Map<string, any>(report.sites.map((site: any) => [site.parcel_id, site]));
   assert.deepEqual([...byParcel.keys()].sort(), Object.keys(expected.sites).sort(), "site set must match expected parcels");
   for (const [parcelId, expectedSite] of Object.entries(expected.sites) as Array<[string, any]>) {
     const site = byParcel.get(parcelId);

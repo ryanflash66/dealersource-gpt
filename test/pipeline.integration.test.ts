@@ -66,6 +66,6 @@ test("rolling bounce threshold automatically pauses mail", async () => {
   await writeFile(files.statePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
   const replay = await runPipeline({ offline: true, runDate: "2026-09-16", ...files });
   assert.equal(replay.state.system[0].paused, true);
-  assert.match(replay.state.system[0].reason, /bounce rate/);
+  assert.match(replay.state.system[0].reason ?? "", /bounce rate/);
   assert.ok(replay.report.exceptions.some((item) => item.type === "outreach"));
 });
