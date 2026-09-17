@@ -11,7 +11,7 @@ const mime = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=u
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-    let path = url.pathname === "/api/data" ? resolve(projectRoot, ".data", "report.json") : resolve(output, `.${url.pathname === "/" ? "/index.html" : url.pathname}`);
+    let path = url.pathname === "/api/data" ? resolve(projectRoot, ".data", "contract", "report.json") : resolve(output, `.${url.pathname === "/" ? "/index.html" : url.pathname}`);
     try {
       if ((await stat(path)).isDirectory()) path = resolve(path, "index.html");
     } catch {

@@ -24,6 +24,92 @@ function sourceDomain(value) {
   try { return new URL(value).hostname; } catch { return "source"; }
 }
 
+function normalizeContractReport(report) {
+  if (report?.schema_version !== "1") return report;
+  const business = runtime.publicConfig?.business ?? {};
+  const rentMin = Number(business.rent?.min_monthly ?? 600);
+  const rentMax = Number(business.rent?.max_monthly ?? 1000);
+  const maxDrive = Number(business.search?.max_drive_minutes ?? 60);
+  const evidenceBySite = new Map();
+  for (const item of report.evidence ?? []) {
+    const rows = evidenceBySite.get(item.site_id) ?? [];
+    rows.push(item);
+    evidenceBySite.set(item.site_id, rows);
+  }
+  const pipeline = (report.sites ?? []).map((site) => {
+    const metrics = site.metrics ?? {};
+    const rentRange = Math.max(1, rentMax - rentMin);
+    const score = site.score == null ? null : {
+      traffic: Math.max(0, Math.min(35, Number(metrics.aadt ?? 0) / 30_000 * 35)),
+      visibility: Math.max(0, Math.min(25, Number(metrics.visibility ?? 0) * 25)),
+      distance: Math.max(0, Math.min(20, (1 - Number(site.drive_minutes ?? maxDrive) / maxDrive) * 20)),
+      rent: Math.max(0, Math.min(12, (1 - (Number(metrics.rent_monthly ?? rentMax) - rentMin) / rentRange) * 12)),
+      competitors: Math.max(0, Math.min(8, (1 - Number(metrics.competitors ?? 10) / 10) * 8)),
+      total: Number(site.score),
+    };
+    const gates = ["zoning", "rent", "flood"].map((name) => {
+      const evidenceId = site.gates?.[name]?.evidence_ids?.[0] ?? null;
+      const item = (report.evidence ?? []).find((candidate) => candidate.evidence_id === evidenceId);
+      return {
+        name,
+        status: site.gates?.[name]?.status ?? "pending",
+        evidenceId,
+        reason: site.gates?.[name]?.status === "pending" ? "Evidence is still pending." : "Contract evidence recorded.",
+        sourceUrl: item?.source_url,
+        fetchedAt: item?.fetched_at,
+        expiresAt: item?.expires_at,
+      };
+    });
+    return {
+      id: site.site_id,
+      siteKey: site.parcel_id,
+      address: site.address,
+      latitude: site.latitude ?? null,
+      longitude: site.longitude ?? null,
+      parcelId: site.parcel_id,
+      listingIds: site.listing_ids,
+      sourceUrls: (evidenceBySite.get(site.site_id) ?? []).map((item) => item.source_url),
+      monthlyRent: metrics.rent_monthly,
+      sharedLot: site.shared_lot,
+      inSearchArea: site.in_search_area,
+      stage: site.viable ? "reported" : !site.in_search_area || gates.some((gate) => gate.status === "fail") ? "excluded" : "verifying",
+      metrics: {
+        aadt: metrics.aadt,
+        frontageFeet: Math.round(Number(metrics.visibility ?? 0) * 200),
+        cornerLot: null,
+        signageVisible: null,
+        driveMinutes: site.drive_minutes,
+        competitors: metrics.competitors,
+      },
+      imagery: [],
+      gates,
+      viable: site.viable,
+      score,
+      rank: site.rank,
+    };
+  });
+  const cases = (report.sites ?? []).flatMap((site) => (site.open_cases ?? []).map((item, index) => ({
+    id: `case-${site.site_id}-${item.case_type}-${index}`,
+    siteId: site.site_id,
+    type: item.case_type,
+    owner: item.case_type === "zoning" ? "planning-authority" : "leasing-contact",
+    recipient: item.recipient,
+    status: item.status,
+    openedAt: `${report.run_date}T10:00:00.000Z`,
+    nextActionAt: `${report.run_date}T10:00:00.000Z`,
+    followups: 0,
+  })));
+  return {
+    generatedAt: `${report.run_date}T09:05:00.000Z`,
+    runId: report.run_id,
+    shortlist: pipeline.filter((site) => site.viable).sort((left, right) => left.rank - right.rank),
+    pipeline,
+    cases,
+    exceptions: [],
+    config: { business, providers: report.providers },
+  };
+}
+
 async function fetchSupabase(path) {
   const response = await fetch(`${runtime.supabaseUrl}/rest/v1/${path}`, {
     headers: { apikey: runtime.supabaseAnonKey, Authorization: `Bearer ${runtime.supabaseAnonKey}` },
@@ -74,7 +160,7 @@ async function loadReport() {
   }
   const response = await fetch("/api/data").catch(() => null) ?? await fetch("/data.json");
   if (!response.ok) throw new Error("Fixture report could not be loaded.");
-  return response.json();
+  return normalizeContractReport(await response.json());
 }
 
 function gateStatus(value) {
@@ -130,11 +216,11 @@ function renderPendingCard(site, report) {
 }
 
 function evidenceMarkup(site, report) {
-  const source = site.sourceUrls?.[0];
   return (site.gates ?? []).map((gate) => {
     const status = gateStatus(gate.status);
+    const source = gate.sourceUrl ?? site.sourceUrls?.[0];
     const link = source ? `<a href="${escapeHtml(source)}" target="_blank" rel="noopener">Open${icon("external")}</a>` : "";
-    return `<div class="evidence-row"><div><div class="fact-line ${status}">${icon(gateIcon(status))}${escapeHtml(gate.name)} ${status}<span>· ${escapeHtml(gate.reason ?? "Evidence recorded")}</span></div><div class="evidence-meta">${escapeHtml(source ? sourceDomain(source) : "source unavailable")} · verified source · fetched ${escapeHtml(formatDate(report.generatedAt))} · report TTL</div></div>${link}</div>`;
+    return `<div class="evidence-row"><div><div class="fact-line ${status}">${icon(gateIcon(status))}${escapeHtml(gate.name)} ${status}<span>· ${escapeHtml(gate.reason ?? "Evidence recorded")}</span></div><div class="evidence-meta">${escapeHtml(source ? sourceDomain(source) : "source unavailable")} · verified source · fetched ${escapeHtml(formatDate(gate.fetchedAt ?? report.generatedAt))}${gate.expiresAt ? ` · expires ${escapeHtml(formatDate(gate.expiresAt))}` : ""}</div></div>${link}</div>`;
   }).join("");
 }
 
@@ -191,6 +277,7 @@ async function upgradeMap(report) {
 }
 
 function pipelineStage(site) {
+  if (site.inSearchArea === false) return "excluded";
   if (site.viable || site.stage === "reported" || site.stage === "scored") return "scored";
   if ((site.gates ?? []).some((gate) => gateStatus(gate.status) === "fail")) return "excluded";
   return ["discovered", "resolved", "enriched", "verifying"].includes(site.stage) ? site.stage : "verifying";
@@ -275,7 +362,7 @@ function renderConfig(report, paused) {
   const providers = report.config?.providers?.providers ?? report.config?.providers ?? {};
   const paid = Boolean(report.config?.providers?.paid_enabled);
   $("#paid-indicator").innerHTML = `<span class="cost-pill ${paid ? "paid" : "free"}">${paid ? "Paid" : "Free"}</span> ${paid ? "Paid providers enabled" : "All selected providers use the free configuration"}`;
-  $("#provider-rows").innerHTML = Object.entries(providers).map(([kind, provider]) => `<div class="provider-row"><span class="kind">${escapeHtml(kind)}</span><div><strong>${escapeHtml(provider)}</strong><small>Selected provider</small></div><span class="row-sub">Fixture fallback</span><span class="cost-pill ${paid ? "paid" : "free"}">${paid ? "Paid" : "Free"}</span><span class="provider-status">OK</span></div>`).join("");
+  $("#provider-rows").innerHTML = Object.entries(providers).filter(([kind]) => kind !== "paid_enabled").map(([kind, provider]) => `<div class="provider-row"><span class="kind">${escapeHtml(kind)}</span><div><strong>${escapeHtml(provider)}</strong><small>Selected provider</small></div><span class="row-sub">Fixture input</span><span class="cost-pill ${paid ? "paid" : "free"}">${paid ? "Paid" : "Free"}</span><span class="provider-status">OK</span></div>`).join("");
 }
 
 function showView(view) {

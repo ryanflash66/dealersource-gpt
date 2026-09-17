@@ -49,8 +49,8 @@
   --muted-foreground: var(--ink-600);
 
   /* ---- Semantic: brand ---- */
-  --primary: #5B4BC4;
-  --primary-hover: #4938AD;
+  --primary: #10A37F;
+  --primary-hover: #0D876A;
   --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.955 0.01 250);
   --secondary-foreground: oklch(0.27 0.03 255);
@@ -88,8 +88,8 @@
   --muted: oklch(0.23 0.02 255);
   --muted-foreground: oklch(0.74 0.012 252);
 
-  --primary: #A99BFF;
-  --primary-hover: #C1B8FF;
+  --primary: #38CBA4;
+  --primary-hover: #63D8B8;
   --primary-foreground: oklch(0.14 0.02 255);
   --secondary: oklch(0.24 0.02 255);
   --secondary-foreground: oklch(0.92 0.008 250);
